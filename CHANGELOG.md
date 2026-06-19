@@ -5,15 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Internal refactors, tooling, and chores are intentionally omitted. (Automated
-changelog generation from Conventional Commits via git-cliff will be added once
-the project is under version control.)
+changelog generation from Conventional Commits via git-cliff is planned but not
+yet set up.)
 
 ## [Unreleased]
 
-v0.1 is under active development. The `selene-core` data layer, the Tauri IPC
-layer, and the desktop UI are all implemented; remaining work is broader test
-coverage (dockerized-MSSQL integration tests, frontend component/E2E tests) and
-packaging.
+## [1.0.0] - 2026-06-19
+
+First public release. The `selene-core` data layer, the Tauri IPC layer, and the
+desktop UI are all implemented; remaining work (broader E2E coverage, multi-OS
+packaging, signed releases) is tracked on the roadmap.
 
 ### Added
 
@@ -56,6 +57,19 @@ packaging.
   counts are what *would* have changed and that nothing was committed.
 - The results status bar and the "rows affected" message are now selectable, so
   the row count (and elapsed time) can be copied.
+- Open local folders into a sidebar file tree and open `.sql` files into editor
+  tabs. File-backed tabs save to disk (Cmd/Ctrl+S, and on tab switch / window
+  blur) and stay in sync with external edits: a clean tab silently reloads when
+  the file changes on disk, while a tab with unsaved changes prompts you to keep
+  your version or reload from disk. Open folders and tabs are restored next launch.
+- Schema-aware autocomplete in the editor: table names complete eagerly and a
+  table's columns complete on first reference (fetched lazily per connection).
+  Can be turned off via Settings → Editor.
+- Switch the active database per tab from a toolbar database selector; it runs
+  `USE [db]` on that tab's own session, so tabs don't interfere with each other.
+- A settings screen for appearance, editor, results, query behaviour, and CSV
+  export/import defaults — plus export/import of saved connections (without
+  passwords) and backup/restore of all settings.
 
 ### Changed
 

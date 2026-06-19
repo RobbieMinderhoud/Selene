@@ -9,37 +9,49 @@ Beekeeper Studio), built in **Rust + Tauri**. It targets **Microsoft SQL Server*
 first but is architected so additional drivers (PostgreSQL/MySQL/SQLite via sqlx)
 slot in later without rework. macOS-first; Windows/Linux kept in mind.
 
-> Naming: the product is **Selene**. The repo/folder is still named `SELECT`
-> (the original codename) and will be renamed later. Crates are already `selene-*`.
-> Bundle id placeholder: `com.selene.app`.
+> Naming: the product and the repo are both **Selene** now (renamed from the
+> original codename `SELECT`). Crates are `selene-*`; bundle id `com.selene.app`.
+> Public on GitHub: https://github.com/RobbieMinderhoud/Selene.
 
-## Status — v0.1 (in progress)
+## Status — v1.0
 
 - ✅ **`selene-core`** data layer: driver abstraction, MSSQL driver (tiberius),
-  value conversion, streaming execution, schema introspection, OS-keychain secret
-  storage, CSV/JSON/XLSX exporters, a streaming CSV importer (coerce/infer +
-  bound-parameter insert / create-table), and a SQL safety guard.
-- ✅ **Tauri IPC layer** (`src-tauri`): 16 commands, streaming result channel,
-  app state, dialog + log plugins, locked-down CSP.
-- ✅ **Frontend** (`src/`): the real UI — connection sidebar + connect dialog,
-  lazy/virtualized schema tree, multi-tab CodeMirror 6 editor (MSSQL dialect,
-  Cmd/Ctrl+Enter run), virtualized results grid with multi-result-set sub-tabs +
-  status bar, the guard confirm/block flow, and CSV/JSON/XLSX export with a
-  progress toast. Dark-theme-first with a light toggle (crossfaded via the View
-  Transitions API); Zustand (UI/stream) + TanStack Query (cached reads); typed
-  IPC wrappers over all 14 commands. A token-driven **motion system** animates
-  the whole UI (modals, toasts, tabs, schema tree, results, status) with a
+  value conversion, streaming execution, schema introspection (incl.
+  `use_database`/`current_database`), OS-keychain secret storage, CSV/JSON/XLSX
+  exporters, a streaming CSV importer (coerce/infer + bound-parameter insert /
+  create-table via `RowSource` + `create_table`/`import_rows`), and a SQL safety
+  guard. Zero Tauri dependency; ~70 unit tests on plain `cargo test`.
+- ✅ **Tauri IPC layer** (`src-tauri`): **26 commands**, streaming result/export/
+  import channels, a local **filesystem layer** (file-backed `.sql` tabs +
+  workspace-folder browsing + a change watcher), app state, dialog + log plugins,
+  locked-down CSP.
+- ✅ **Frontend** (`src/`): the real UI — connection sidebar + connect dialog with
+  an inline **password prompt**, lazy/virtualized schema tree with right-click
+  **context menus**, a **workspace file tree** (open folders, browse/open `.sql`
+  files) with two-way **filesystem sync** and an external-edit **conflict** modal,
+  a multi-tab CodeMirror 6 editor (MSSQL dialect, Cmd/Ctrl+Enter run, **schema-aware
+  autocomplete**, in-editor **find & replace**), a per-tab **database switcher**,
+  virtualized results grid with multi-result-set sub-tabs + status bar, the guard
+  confirm/block flow, CSV/JSON/XLSX **export** + CSV **import** mapping modal (both
+  with progress toasts), and a **settings modal** (incl. connection import/export
+  and settings backup/restore). Dark-theme-first with a light toggle (crossfaded
+  via the View Transitions API); Zustand (UI/stream) + TanStack Query (cached
+  reads); typed IPC wrappers over all 26 commands. A token-driven **motion system**
+  animates the whole UI (modals, toasts, tabs, schema tree, results, status) with a
   global `prefers-reduced-motion` guard — see _Motion & animation_ below.
 - ✅ Integration tests (testcontainers MSSQL): `crates/selene-core/tests/mssql_integration.rs`
   exercises the public driver API against a real SQL Server (connect/test_connection,
   typed scalar mapping, batched streaming + ordering, `max_rows` truncation, multiple
-  result sets, cooperative cancellation, introspection, CSV export). All `#[ignore]`-d;
-  run via `just test-integration` (Docker required). Frontend tests run on Vitest:
-  unit tests for the pure pieces (CellValue formatting, IPC error narrowing) plus
-  component/integration tests in jsdom + React Testing Library (editor-store result
-  reducers, the `runQuery` guard→stream orchestration with a mocked `Channel`,
-  ConnectionDialog incl. the password-handling contract, the lazy SchemaTree, and
-  the guard/toast UI). Real Tauri WebDriver E2E is still deferred (to land with CI).
+  result sets, cooperative cancellation, leading-`USE` + rollback handling,
+  introspection, CSV export, and CSV import: new table, existing table with
+  reordering/subset, atomic rollback, and skip-mode). All `#[ignore]`-d; run via
+  `just test-integration` (Docker required). Frontend tests run on Vitest: unit
+  tests for the pure pieces (CellValue formatting, IPC error narrowing,
+  connection-name matching, settings store) plus component/integration tests in
+  jsdom + React Testing Library (editor-store result reducers, the `runQuery`
+  guard→stream orchestration with a mocked `Channel`, ConnectionDialog incl. the
+  password-handling contract, the lazy SchemaTree, EditorSearch, CsvImportModal,
+  and the guard/toast UI). Real Tauri WebDriver E2E is still deferred (to land with CI).
 
 ## Tech stack
 
@@ -76,10 +88,11 @@ transitions that CSS can't express — and weigh the bundle cost first.
 
 A Cargo **workspace**. `selene-core` holds all DB/query/export logic and has
 **zero Tauri dependency** (so it's plain-`cargo test`-able and reusable by a
-future CLI). `src-tauri` is a thin IPC/state adapter. `src/` is the React app.
+future CLI). `src-tauri` is a thin IPC/state adapter (plus a small `std::fs`
+layer for file-backed tabs). `src/` is the React app.
 
 ```
-SELECT/
+Selene/
 ├─ Cargo.toml                  # [workspace]; [workspace.package] version is the source of truth
 ├─ justfile                    # dev/build/test/lint/format/version recipes
 ├─ scripts/sync-version.sh     # propagates the version to tauri.conf.json + package.json
@@ -89,8 +102,8 @@ SELECT/
 │  ├─ capabilities.rs          # DriverCapabilities (UI feature gating)
 │  ├─ error.rs                 # CoreError (redaction-safe)
 │  ├─ secret.rs                # Secret (redacts Debug, zeroizes on drop)
-│  ├─ driver/                  # DatabaseDriver/Connection/RowSink traits + driver_for()
-│  │  └─ mssql/                # tiberius impl: config, convert, stream, introspect, error
+│  ├─ driver/                  # DatabaseDriver/Connection/RowSink/RowSource traits + driver_for()
+│  │  └─ mssql/                # tiberius impl: config, convert, stream, introspect, import, error
 │  ├─ introspect.rs            # DatabaseInfo/SchemaInfo/TableInfo/ColumnInfo
 │  ├─ export/                  # Exporter (RowSink) → csv/json/xlsx
 │  ├─ import/                  # CsvRowSource (RowSource) + coerce/infer ← csv
@@ -98,20 +111,29 @@ SELECT/
 │  └─ secrets/                 # keyring wrapper (KeychainStore)
 ├─ src-tauri/src/
 │  ├─ lib.rs                   # Tauri builder, plugins, AppState, command registration
-│  ├─ state.rs                 # AppState: ConnectionStore + sessions + running queries
+│  ├─ state.rs                 # AppState: ConnectionStore + secret cache + sessions + running queries + fs watcher
 │  ├─ error.rs                 # IpcError (serde) ← CoreError, sanitized
-│  └─ commands/{connection,session,introspect,query,export,import}.rs
+│  └─ commands/{connection,session,introspect,query,export,import,fs}.rs
 └─ src/                        # React + Vite frontend (presentation only)
+   ├─ components/              # UI (SqlEditor, ResultsGrid, SchemaTree, FileTree, *Modal, …)
+   ├─ state/                   # Zustand stores (editor, session, settings, workspace, layout, theme, …)
+   ├─ lib/                     # runQuery, fsSync, sqlCompletion, connect, motion, cellFormat, …
+   └─ ipc/                     # typed command wrappers + channels + hand-written domain types
 ```
 
 ### Driver abstraction (the core contract)
 
 `crates/selene-core/src/driver/mod.rs` defines `DatabaseDriver`, `Connection`,
-and `RowSink` (`#[async_trait]`). Dispatch is dynamic (`Box<dyn Connection>`);
-Cargo **features** gate which drivers compile (`default = ["mssql"]`). Adding a
-backend = new `driver/<name>/` module + a feature + a `DriverId` variant + a
-registration arm in `driver_for()`. **No IPC or frontend change needed.**
+`RowSink`, and `RowSource` (`#[async_trait]`). Dispatch is dynamic
+(`Box<dyn Connection>`); Cargo **features** gate which drivers compile
+(`default = ["mssql"]`). Adding a backend = new `driver/<name>/` module + a
+feature + a `DriverId` variant + a registration arm in `driver_for()`. **No IPC
+or frontend change needed.**
 
+- Core `Connection` methods: `execute` (streams rows to a `RowSink`, honours a
+  `CancelToken`), the four `list_*` introspection calls, and `ping`. Optional
+  methods (default to `Unsupported`, implemented by MSSQL): `use_database`,
+  `current_database`, `create_table`, and `import_rows` (pulls from a `RowSource`).
 - `CellValue` is driver-neutral; **decimals are strings** (no precision loss);
   unknown types become `CellValue::Unsupported` (lossless).
 - Cancellation is **cooperative** (`CancelToken`, checked between row batches).
@@ -122,24 +144,34 @@ Commands return `Result<T, IpcError>` where `IpcError = { message, kind }`
 (sanitized; never contains secrets). Tauri 2 maps camelCase JS argument keys to
 the snake_case Rust parameters.
 
-| Command              | Args                                                                           | Returns                                           |
-| -------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
-| `connections_list`   | –                                                                              | `ConnectionSpec[]`                                |
-| `connection_save`    | `{ spec, password? }`                                                          | `ConnectionSpec`                                  |
-| `connection_delete`  | `{ id }`                                                                       | –                                                 |
-| `connection_test`    | `{ spec, password? }`                                                          | `TestReport`                                      |
-| `session_connect`    | `{ connectionId, password? }`                                                  | `SessionInfo { sessionId, driver, capabilities }` |
-| `session_disconnect` | `{ sessionId }`                                                                | –                                                 |
-| `databases_list`     | `{ sessionId }`                                                                | `DatabaseInfo[]`                                  |
-| `schemas_list`       | `{ sessionId, database }`                                                      | `SchemaInfo[]`                                    |
-| `tables_list`        | `{ sessionId, database, schema }`                                              | `TableInfo[]`                                     |
-| `columns_list`       | `{ sessionId, database, schema, table }`                                       | `ColumnInfo[]`                                    |
-| `guard_check`        | `{ sql, readOnly }`                                                            | `GuardVerdict`                                    |
-| `query_run`          | `{ sessionId, sql, maxRows?, onEvent: Channel<QueryEvent> }`                   | `{ queryId }`                                     |
-| `query_cancel`       | `{ queryId }`                                                                  | –                                                 |
-| `export_result`      | `{ sessionId, sql, format, path, maxRows?, onProgress: Channel<ExportEvent> }` | `ExportSummary`                                   |
-| `import_csv_analyze` | `{ path, options? }`                                                           | `CsvAnalysis` (headers, sampleRows, inferred[])   |
-| `import_csv`         | `{ sessionId, path, target, mapping, options, onProgress: Channel<ImportEvent> }` | `ImportSummary`                                |
+| Command                    | Args                                                                                       | Returns                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `connections_list`         | –                                                                                          | `ConnectionSpec[]`                                |
+| `connection_save`          | `{ spec, password? }`                                                                      | `ConnectionSpec`                                  |
+| `connection_delete`        | `{ id }`                                                                                    | –                                                 |
+| `connection_reorder`       | `{ ids }`                                                                                   | –                                                 |
+| `connection_test`          | `{ spec, password? }`                                                                       | `TestReport`                                      |
+| `connections_import`       | `{ specs }`                                                                                 | `ConnectionSpec[]`                                |
+| `session_connect`          | `{ connectionId, password? }`                                                               | `SessionInfo { sessionId, driver, capabilities }` |
+| `session_disconnect`       | `{ sessionId }`                                                                             | –                                                 |
+| `session_use_database`     | `{ sessionId, database }`                                                                   | –                                                 |
+| `session_current_database` | `{ sessionId }`                                                                             | `string`                                          |
+| `databases_list`           | `{ sessionId }`                                                                             | `DatabaseInfo[]`                                  |
+| `schemas_list`             | `{ sessionId, database }`                                                                   | `SchemaInfo[]`                                    |
+| `tables_list`              | `{ sessionId, database, schema }`                                                           | `TableInfo[]`                                     |
+| `columns_list`             | `{ sessionId, database, schema, table }`                                                    | `ColumnInfo[]`                                    |
+| `guard_check`              | `{ sql, readOnly }`                                                                         | `GuardVerdict`                                    |
+| `query_run`                | `{ sessionId, sql, maxRows?, onEvent: Channel<QueryEvent> }`                                | `{ queryId }`                                     |
+| `query_cancel`             | `{ queryId }`                                                                               | –                                                 |
+| `export_result`            | `{ sessionId, sql, format, path, maxRows?, csvOptions?, onProgress: Channel<ExportEvent> }` | `ExportSummary`                                   |
+| `import_csv_analyze`       | `{ path, options? }`                                                                        | `CsvAnalysis` (headers, sampleRows, inferred[])   |
+| `import_csv`               | `{ sessionId, path, target, mapping, options, onProgress: Channel<ImportEvent> }`           | `ImportSummary`                                   |
+| `file_read`                | `{ path }`                                                                                  | `string`                                          |
+| `file_write`               | `{ path, content }`                                                                         | –                                                 |
+| `dir_list`                 | `{ path }`                                                                                  | `FsEntry[]` (subdirs + `.sql` files)              |
+| `canonicalize_path`        | `{ path }`                                                                                  | `string`                                          |
+| `fs_watch`                 | `{ path }`                                                                                  | –                                                 |
+| `fs_unwatch`               | `{ path }`                                                                                  | –                                                 |
 
 **`query_run` streams over a `tauri::ipc::Channel<QueryEvent>`.** `QueryEvent` is
 tagged by a `kind` field with **camelCase** fields:
@@ -150,6 +182,16 @@ tagged by a `kind` field with **camelCase** fields:
 `{kind:"done", rows}`, `{kind:"failed", message}`. `ImportEvent`:
 `{kind:"progress", rows}`, `{kind:"done", inserted, skipped}`,
 `{kind:"failed", message}`.
+
+**Filesystem layer** (`commands/fs.rs`) backs file-tabs and the workspace tree
+with thin, canonicalized `std::fs` wrappers (no `selene-core` involvement):
+`file_read`/`file_write` (atomic temp-then-rename), `dir_list` (immediate subdirs
++ `.sql` files, for the lazy tree), and `fs_watch`/`fs_unwatch`. Unlike the
+streaming commands, the watcher emits a **global Tauri event** `"fs:change"` (not
+a `Channel`): `{kind:"changed"|"removed", path}` (canonical paths). The frontend's
+`startFileSync()` (`src/lib/fsSync.ts`) listens and reconciles open tabs (silent
+reload when clean, conflict modal when the buffer is dirty, noop on our own write).
+File contents are treated like SQL text — never logged above `DEBUG`/`TRACE`.
 
 **CSV import** (`import_csv`) inserts via **multi-row bound-parameter** `INSERT`s
 (never spliced cell values), sub-batched to stay under SQL Server's 2100-param
@@ -188,7 +230,7 @@ just test-core      # selene-core unit tests
 just test-integration  # dockerized-MSSQL integration tests (Docker required)
 just lint           # clippy -D warnings (+ frontend lint)
 just format         # rustfmt (+ prettier)
-just version 0.2.0  # bump + sync version across all manifests
+just version 1.1.0  # bump + sync version across all manifests
 just version-check  # verify versions are in sync
 ```
 
@@ -260,8 +302,8 @@ own keychain items silently, so end users never see it.
 - **Security (always-on):**
   - Passwords/tokens live **only** in the OS keychain via `keyring`; never on disk,
     never in logs. Use the `Secret` newtype (redacted `Debug`, zeroized on drop).
-  - **Never log** SQL text or row/cell data above `DEBUG`/`TRACE`, and never log
-    secrets. IPC errors are sanitized in `src-tauri/src/error.rs`.
+  - **Never log** SQL text, file contents, or row/cell data above `DEBUG`/`TRACE`,
+    and never log secrets. IPC errors are sanitized in `src-tauri/src/error.rs`.
   - TLS is on by default; `trust_server_certificate` is an explicit per-connection
     opt-in. SQL identifiers spliced into introspection are bracket-quoted; all
     other user values are bound parameters.
@@ -295,13 +337,17 @@ own keychain items silently, so end users never see it.
   `tauri.conf.json` and `package.json` (run `just version-check` to detect drift).
 - **`CHANGELOG.md`** follows _Keep a Changelog_ and lists **only functional
   (user-facing) changes**.
-- **Deferred until the project is under git:** Conventional Commits, git-cliff
-  changelog automation, pre-commit hooks, CI (GitLab), signed/notarized releases,
-  and auto-update.
+- **Not yet set up** (now that the repo is public on GitHub): Conventional Commits,
+  git-cliff changelog automation, pre-commit hooks, CI, signed/notarized releases,
+  and auto-update. Do **not** create git tags without explicit user approval.
 
 ## Roadmap (high level)
 
-v0.2 editor/results polish + Windows/Linux • v0.3 sqlx drivers (pg/mysql/sqlite) +
-schema-aware autocomplete + ts-rs type generation • v0.4 transactions + query
-plans • v0.5 in-grid data editing + import • v0.6 SSH tunnel + Windows/Entra auth •
-v1.0 hardening. (See the full plan for details.)
+Shipped through **v1.0**: MSSQL connect/auth + keychain, streaming query run +
+cancel, schema tree, CSV/JSON/XLSX export, CSV import, SQL guard + read-only mode,
+file-backed `.sql` tabs + workspace tree + filesystem sync, schema-aware
+autocomplete, find & replace, per-tab database switcher, settings (+ backup/restore).
+
+Beyond v1.0: Windows/Linux packaging • sqlx drivers (pg/mysql/sqlite) + ts-rs type
+generation • transactions + query plans • in-grid data editing • SSH tunnel +
+Windows/Entra auth • signed/notarized releases + auto-update + CI.
