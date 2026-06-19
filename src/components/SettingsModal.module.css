@@ -1,0 +1,223 @@
+/* ── Tab navigation ──────────────────────────────────────────────────────── */
+
+.tabList {
+  display: flex;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--dur-2) var(--ease-out),
+    background var(--dur-2) var(--ease-out);
+}
+
+.tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.tabActive {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* Entering panel fades and slides up. Key change in React triggers remount. */
+.tabPanel {
+  animation: tabIn var(--dur-2) var(--ease-out) both;
+}
+
+@keyframes tabIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Sections ────────────────────────────────────────────────────────────── */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sectionLabel {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.themeOptions {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.themeOption {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  position: relative;
+  transition:
+    border-color var(--dur-2) var(--ease-out),
+    background var(--dur-2) var(--ease-out);
+}
+
+.themeOption:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.themeOption.active {
+  border-color: var(--accent);
+}
+
+.swatch {
+  display: flex;
+  width: 56px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
+.swatchSegment {
+  flex: 1;
+}
+
+.themeLabel {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.check {
+  position: absolute;
+  top: var(--sp-1);
+  right: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* Stack sections with a divider. */
+.section + .section {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-1) 0;
+}
+
+.rowLabel {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.rowHelp {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.toggle {
+  /* Custom switch (transform-only animation, GPU-cheap). */
+  --w: 36px;
+  --h: 20px;
+  position: relative;
+  width: var(--w);
+  height: var(--h);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--h) / 2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+.toggle[data-on="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: calc(var(--h) - 4px);
+  height: calc(var(--h) - 4px);
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform var(--dur-2) var(--ease-spring);
+}
+.toggle[data-on="true"]::after {
+  transform: translateX(calc(var(--w) - var(--h)));
+  background: var(--accent-contrast);
+}
+
+.select {
+  min-width: 140px;
+}
+
+/* ── Backup tab ──────────────────────────────────────────────────────────── */
+
+.backupRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.backupRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.backupRowLabel {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.backupRowHelp {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}

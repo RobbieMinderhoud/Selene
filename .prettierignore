@@ -1,0 +1,15 @@
+# Prettier is scoped to the frontend only. Everything else (Rust crates, the
+# Tauri shell, build outputs, generated artifacts, lockfiles, and repo docs) is
+# out of scope so `pnpm format` never churns files this phase does not own.
+dist
+node_modules
+target
+src-tauri
+crates
+scripts
+pnpm-lock.yaml
+*.lock
+*.md
+*.json
+*.toml
+*.svg

@@ -1,0 +1,244 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  /* Transparent so the results island's surface frames it; the grid scroll
+     keeps its own --bg below. */
+  background: transparent;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 var(--sp-2);
+  /* Top strip of the results island; corners clipped by the island radius. */
+  background: var(--surface);
+}
+
+.setTabs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  overflow-x: auto;
+}
+
+.runningLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  padding: 0 var(--sp-2);
+}
+
+.setTab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-muted);
+  padding: var(--sp-2);
+  font-size: var(--fs-sm);
+  transition:
+    color var(--dur-1) var(--ease-out),
+    border-bottom-color var(--dur-2) var(--ease-out);
+}
+
+.setTab:hover {
+  background: none;
+  color: var(--text);
+}
+
+.setTabActive {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.exportWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.menuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 51;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  min-width: 140px;
+  padding: var(--sp-1);
+  transform-origin: top right;
+  animation: menuIn var(--dur-2) var(--ease-out);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+}
+
+.menuItem:hover {
+  background: var(--surface-hover);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  animation: fadeIn var(--dur-3) var(--ease-out);
+  /* Override the global `body { user-select: none }` so the affected-row /
+     rolled-back message can be selected and copied (users record the count). */
+  user-select: text;
+}
+
+.placeholder kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.errorBox {
+  padding: var(--sp-4);
+  color: var(--danger);
+  overflow: auto;
+  height: 100%;
+  animation: resultIn var(--dur-3) var(--ease-out);
+}
+
+.errorBox strong {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+
+.errorBox pre {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  user-select: text;
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--statusbar-h);
+  padding: 0 var(--sp-3);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  /* Selectable so the row count / elapsed time can be copied (see .placeholder). */
+  user-select: text;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.statusDot.running {
+  background: var(--accent);
+  animation: pulse 1s var(--ease-in-out) infinite;
+}
+
+.statusDot.done {
+  background: var(--success);
+}
+
+.statusDot.failed {
+  background: var(--danger);
+}
+
+.statusDot.cancelled {
+  background: var(--warning);
+}
+
+.statusText {
+  color: var(--text);
+}
+
+.sep {
+  color: var(--border-strong);
+}
+
+.truncated {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.roTag {
+  margin-left: auto;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes resultIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

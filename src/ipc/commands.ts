@@ -1,0 +1,282 @@
+/**
+ * Typed wrappers over the Tauri `invoke` surface.
+ *
+ * Tauri v2 maps **camelCase JS argument keys** to the snake_case Rust command
+ * parameters automatically (e.g. JS `{ sessionId }` -> Rust `session_id`,
+ * `{ connectionId }` -> `connection_id`, `{ readOnly }` -> `read_only`,
+ * `{ maxRows }` -> `max_rows`, `{ onEvent }` -> `on_event`). So every arg object
+ * below uses camelCase keys. This was verified against the command signatures
+ * in `src-tauri/src/commands/*.rs`.
+ *
+ * `invoke` rejects with the `IpcError` shape on `Err`; callers should catch and
+ * surface via `asIpcError`.
+ */
+
+import { Channel, invoke } from "@tauri-apps/api/core";
+
+import type {
+  ColumnInfo,
+  ColumnMappingArg,
+  ConnectionSpec,
+  CsvAnalysis,
+  CsvOptions,
+  DatabaseInfo,
+  ExportEvent,
+  ExportFormat,
+  ExportSummary,
+  FsEntry,
+  GuardVerdict,
+  ImportCsvOptions,
+  ImportEvent,
+  ImportSummary,
+  ImportTargetArg,
+  QueryEvent,
+  SchemaInfo,
+  SessionInfo,
+  TableInfo,
+  TestReport,
+} from "./types";
+
+// --- Connections ----------------------------------------------------------
+
+/** `connections_list` -> all saved connection specs (non-secret). */
+export function connectionsList(): Promise<ConnectionSpec[]> {
+  return invoke("connections_list");
+}
+
+/**
+ * `connection_save` -> upsert a spec. When `password` is provided it is written
+ * to the OS keychain; when omitted the stored secret is left untouched. The
+ * password is passed straight through and never stored in app state.
+ */
+export function connectionSave(
+  spec: ConnectionSpec,
+  password?: string,
+): Promise<ConnectionSpec> {
+  return invoke("connection_save", { spec, password });
+}
+
+/** `connection_delete` -> remove a spec and its keychain secret. */
+export function connectionDelete(id: string): Promise<void> {
+  return invoke("connection_delete", { id });
+}
+
+/** `connection_reorder` -> persist a new display order for saved connections. */
+export function connectionReorder(ids: string[]): Promise<void> {
+  return invoke("connection_reorder", { ids });
+}
+
+/**
+ * `connections_import` -> upsert a list of specs by id (merge, not replace).
+ * Returns the full updated list. Passwords are not imported — the user is
+ * prompted when they first connect each imported connection.
+ */
+export function connectionsImport(
+  specs: ConnectionSpec[],
+): Promise<ConnectionSpec[]> {
+  return invoke("connections_import", { specs });
+}
+
+/** `connection_test` -> probe connectivity without opening a session. */
+export function connectionTest(
+  spec: ConnectionSpec,
+  password?: string,
+): Promise<TestReport> {
+  return invoke("connection_test", { spec, password });
+}
+
+// --- Sessions -------------------------------------------------------------
+
+/**
+ * `session_connect` -> open a live session for a saved connection.
+ *
+ * Pass `password` to authenticate with a user-supplied password (the retry
+ * after the missing-password prompt); on success the backend persists it to the
+ * keychain. Omit it to use the stored secret — a missing one rejects with
+ * `kind: "secret"`, which {@link connectSession} catches to drive the prompt.
+ */
+export function sessionConnect(
+  connectionId: string,
+  password?: string,
+): Promise<SessionInfo> {
+  return invoke("session_connect", { connectionId, password });
+}
+
+/** `session_disconnect` -> close a live session (idempotent). */
+export function sessionDisconnect(sessionId: string): Promise<void> {
+  return invoke("session_disconnect", { sessionId });
+}
+
+/** `session_use_database` -> switch the active database for the session. */
+export function sessionUseDatabase(
+  sessionId: string,
+  database: string,
+): Promise<void> {
+  return invoke("session_use_database", { sessionId, database });
+}
+
+/** `session_current_database` -> the active database name for the session. */
+export function sessionCurrentDatabase(sessionId: string): Promise<string> {
+  return invoke("session_current_database", { sessionId });
+}
+
+// --- Introspection --------------------------------------------------------
+
+/** `databases_list` -> databases on the session's server. */
+export function databasesList(sessionId: string): Promise<DatabaseInfo[]> {
+  return invoke("databases_list", { sessionId });
+}
+
+/** `schemas_list` -> schemas within `database`. */
+export function schemasList(
+  sessionId: string,
+  database: string,
+): Promise<SchemaInfo[]> {
+  return invoke("schemas_list", { sessionId, database });
+}
+
+/** `tables_list` -> tables and views within `database`.`schema`. */
+export function tablesList(
+  sessionId: string,
+  database: string,
+  schema: string,
+): Promise<TableInfo[]> {
+  return invoke("tables_list", { sessionId, database, schema });
+}
+
+/** `columns_list` -> columns of `database`.`schema`.`table`. */
+export function columnsList(
+  sessionId: string,
+  database: string,
+  schema: string,
+  table: string,
+): Promise<ColumnInfo[]> {
+  return invoke("columns_list", { sessionId, database, schema, table });
+}
+
+// --- Guard ----------------------------------------------------------------
+
+/** `guard_check` -> classify a SQL batch for safety before running it. */
+export function guardCheck(
+  sql: string,
+  readOnly: boolean,
+): Promise<GuardVerdict> {
+  return invoke("guard_check", { sql, readOnly });
+}
+
+// --- Query (streaming) ----------------------------------------------------
+
+/**
+ * `query_run` -> start a streaming query. Result data arrives on `onEvent`
+ * (a `Channel<QueryEvent>`); the returned `{ queryId }` is the cancellation
+ * handle. The command returns immediately, before the first row.
+ */
+export function queryRun(
+  sessionId: string,
+  sql: string,
+  maxRows: number | undefined,
+  onEvent: Channel<QueryEvent>,
+): Promise<{ queryId: string }> {
+  return invoke("query_run", { sessionId, sql, maxRows, onEvent });
+}
+
+/** `query_cancel` -> request cooperative cancellation of an in-flight query. */
+export function queryCancel(queryId: string): Promise<void> {
+  return invoke("query_cancel", { queryId });
+}
+
+// --- Export (streaming) ---------------------------------------------------
+
+/**
+ * `export_result` -> run a query and write its first result set to `path`.
+ * Progress arrives on `onProgress` (a `Channel<ExportEvent>`); the awaited
+ * result is the final `ExportSummary`.
+ */
+export function exportResult(
+  sessionId: string,
+  sql: string,
+  format: ExportFormat,
+  path: string,
+  maxRows: number | undefined,
+  onProgress: Channel<ExportEvent>,
+  csvOptions?: CsvOptions,
+): Promise<ExportSummary> {
+  return invoke("export_result", {
+    sessionId,
+    sql,
+    format,
+    path,
+    maxRows,
+    csvOptions,
+    onProgress,
+  });
+}
+
+// --- Import (CSV) ---------------------------------------------------------
+
+/**
+ * `import_csv_analyze` -> read a CSV's header + a sample and infer a SQL type
+ * per column, so the mapping menu can render before anything is written. Needs
+ * no session (pure file read).
+ */
+export function importCsvAnalyze(
+  path: string,
+  options?: ImportCsvOptions,
+): Promise<CsvAnalysis> {
+  return invoke("import_csv_analyze", { path, options });
+}
+
+/**
+ * `import_csv` -> import a CSV into an existing or new table. Progress arrives
+ * on `onProgress` (a `Channel<ImportEvent>`); the awaited result is the final
+ * `ImportSummary`. `mapping` describes each destination column's CSV source.
+ */
+export function importCsv(
+  sessionId: string,
+  path: string,
+  target: ImportTargetArg,
+  mapping: ColumnMappingArg[],
+  options: ImportCsvOptions,
+  onProgress: Channel<ImportEvent>,
+): Promise<ImportSummary> {
+  return invoke("import_csv", {
+    sessionId,
+    path,
+    target,
+    mapping,
+    options,
+    onProgress,
+  });
+}
+
+// --- Filesystem (file-backed tabs + workspace folders) --------------------
+
+/** `file_read` -> a text file's contents (UTF-8). */
+export function fileRead(path: string): Promise<string> {
+  return invoke("file_read", { path });
+}
+
+/** `file_write` -> write `content` to `path` atomically + byte-faithfully. */
+export function fileWrite(path: string, content: string): Promise<void> {
+  return invoke("file_write", { path, content });
+}
+
+/** `dir_list` -> immediate subdirectories + `.sql` files (dirs first). */
+export function dirList(path: string): Promise<FsEntry[]> {
+  return invoke("dir_list", { path });
+}
+
+/** `canonicalize_path` -> the canonical absolute form of a (dialog) path. */
+export function canonicalizePath(path: string): Promise<string> {
+  return invoke("canonicalize_path", { path });
+}
+
+/** `fs_watch` -> recursively watch a folder for `.sql` changes (idempotent). */
+export function fsWatch(path: string): Promise<void> {
+  return invoke("fs_watch", { path });
+}
+
+/** `fs_unwatch` -> stop watching a folder (idempotent). */
+export function fsUnwatch(path: string): Promise<void> {
+  return invoke("fs_unwatch", { path });
+}

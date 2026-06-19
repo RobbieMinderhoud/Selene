@@ -1,0 +1,120 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 var(--sp-3);
+  /* A slim brand strip that blends into the canvas — no dividing line. */
+  background: var(--canvas);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.logo {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  align-self: center;
+  flex-shrink: 0;
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
+/* Playful moon tilt when hovering the brand. */
+.brand:hover .logo {
+  transform: rotate(-25deg);
+}
+
+.product {
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  letter-spacing: 0.01em;
+}
+
+.tagline {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  /* The "desktop" the islands float on: canvas shows in the padding and the
+     gap between the sidebar island and the work column. */
+  background: var(--canvas);
+  padding: var(--gap-island);
+  gap: 0; /* sidebarResizer element fills the gap */
+}
+
+/* Drag handle between sidebar island and editor work area. Visually it IS the
+   gap — width matches --gap-island. A centred 3px accent line appears on hover
+   so the resize affordance is discoverable without adding visible chrome at rest. */
+.sidebarResizer {
+  width: var(--gap-island);
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+}
+
+.sidebarResizer::after {
+  content: "";
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  background: transparent;
+  border-radius: 2px;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.sidebarResizer:hover::after {
+  background: var(--accent);
+}
+
+.work {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Transparent so the canvas shows behind the tab strip and the splitter gap. */
+  background: transparent;
+  /* Float the tab chips above the editor island. The chips sit centred inside
+     the 38px tab bar, leaving ~4px of dead space below them, so we use sp-1
+     here (4px) to make the visual chip-to-island gap match the 8px canvas gap
+     used everywhere else (4px dead space + 4px gap = 8px perceived). */
+  gap: var(--sp-1);
+}
+
+.emptyWork {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  color: var(--text-muted);
+  animation: fadeRise var(--dur-4) var(--ease-out);
+}
+
+@keyframes fadeRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}

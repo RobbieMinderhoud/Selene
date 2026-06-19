@@ -1,0 +1,95 @@
+.stack {
+  position: fixed;
+  bottom: var(--sp-4);
+  right: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  z-index: 1100;
+  max-width: 380px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.toast[data-state="open"] {
+  animation: slideIn var(--dur-3) var(--ease-spring);
+}
+
+.toast[data-state="closed"] {
+  animation: slideOut var(--dur-3) var(--ease-in) forwards;
+}
+
+.toast.error {
+  border-left-color: var(--danger);
+}
+
+.toast.success {
+  border-left-color: var(--success);
+}
+
+.toast.info {
+  border-left-color: var(--info);
+}
+
+/* Leading severity glyph — colour matches the left border, so severity is
+   carried by icon + colour rather than colour alone. */
+.icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.error .icon {
+  color: var(--danger);
+}
+
+.success .icon {
+  color: var(--success);
+}
+
+.info .icon {
+  color: var(--info);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.message {
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.detail {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(16px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+@keyframes slideOut {
+  to {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}

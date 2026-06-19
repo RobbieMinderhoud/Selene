@@ -1,0 +1,87 @@
+[package]
+name = "selene-core"
+description = "UI-agnostic data layer for Selene: driver abstraction, query execution, introspection, and export."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[features]
+default = ["mssql"]
+# Each database backend is gated behind a feature so a build can exclude unused
+# drivers. New drivers (postgres, mysql, sqlite via sqlx) slot in here later.
+# The MSSQL backend pulls in tiberius and its async/runtime support; a non-mssql
+# build excludes them entirely via the `dep:` syntax below.
+mssql = [
+    "dep:tiberius",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:futures-util",
+    "dep:uuid",
+]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+zeroize = "1"
+
+# --- Secret storage (always available, not gated behind a driver feature) --
+# keyring 3.x with the platform-native backends. The features below are all
+# enabled, but keyring's own `cfg(target_os = ...)` gating means only the
+# backend for the host OS is actually compiled: `apple-native` →
+# security-framework on macOS, `windows-native` → windows-sys on Windows,
+# `sync-secret-service` → dbus-secret-service on Linux. Encryption is left at
+# its default (off) since the Secret Service transport is already a trusted
+# local socket; a crypto feature can be added later if required.
+keyring = { version = "3", features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+] }
+
+# --- Export / Import (always available) -----------------------------------
+# `csv` for RFC-4180 CSV reading & writing; `rust_xlsxwriter` for native .xlsx
+# output. `serde_json` (above) drives the streamed JSON exporter. `chrono` is
+# used by the import coercion layer to validate/normalise date & datetime
+# fields, so it is a base dependency (the mssql driver also relies on it).
+csv = "1.4"
+rust_xlsxwriter = "0.95"
+chrono = { workspace = true }
+
+# --- MSSQL driver (feature = "mssql") -------------------------------------
+# tiberius is the pure-Rust TDS client. We disable its defaults and opt into a
+# minimal set: TDS 7.3, a TLS backend, named-instance discovery, and chrono
+# temporal types. We use the `rustls` backend (not `native-tls`): on macOS
+# (`aarch64-apple-darwin`), native-tls's Secure Transport backend fails the TLS
+# handshake against SQL Server's self-signed certificate with
+# `connection closed via error` — see the integration tests in
+# `tests/mssql_integration.rs`. rustls connects successfully and is the same
+# pure-Rust stack across macOS/Windows/Linux.
+tiberius = { version = "0.12", default-features = false, features = [
+    "tds73",
+    "rustls",
+    "sql-browser-tokio",
+    "chrono",
+], optional = true }
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Hermetic temp files for the export golden tests. `tokio` (with the `macros`
+# and `rt` runtime from the workspace) is needed to drive the async `RowSink`
+# methods of the exporters under `#[tokio::test]`.
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+# --- Integration tests (tests/mssql_integration.rs, all `#[ignore]`-d) -----
+# Spin up a real SQL Server in Docker and exercise the public driver API
+# against it. `testcontainers` is the async container runtime; the
+# `mssql_server` module of `testcontainers-modules` provides the ready-made
+# `mcr.microsoft.com/mssql/server` image with EULA/SA-password handling and a
+# readiness wait baked in. These are dev-only deps and never ship in the crate.
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["mssql_server"] }

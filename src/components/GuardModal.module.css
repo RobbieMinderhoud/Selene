@@ -1,0 +1,21 @@
+.lead {
+  margin: 0 0 var(--sp-2);
+  color: var(--text);
+}
+
+.reasons {
+  margin: 0;
+  padding-left: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.hint {
+  margin: var(--sp-3) 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}

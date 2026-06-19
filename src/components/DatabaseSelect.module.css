@@ -1,0 +1,11 @@
+.select {
+  width: auto;
+  min-width: 120px;
+  max-width: 220px;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  flex-shrink: 1;
+}

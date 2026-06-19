@@ -1,0 +1,6 @@
+/* Positioning context for the floating find/replace overlay, which sits
+   absolutely inside this host above the CodeMirror surface. */
+.host {
+  position: relative;
+  height: 100%;
+}

@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+authors = ["Selene contributors"]
+
+[workspace.dependencies]
+# Shared across selene-core and the Tauri shell. Concrete driver/export/secret
+# crates (tiberius, keyring, csv, rust_xlsxwriter, …) are added in their
+# respective implementation phases to keep dependency resolution incremental.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+futures-util = "0.3"
+tracing = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+uuid = { version = "1" }
+
+[profile.release]
+# Smaller, faster release binaries for a desktop app.
+codegen-units = 1
+lto = true
+strip = true

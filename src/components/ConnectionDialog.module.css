@@ -1,0 +1,60 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.row {
+  display: flex;
+  gap: var(--sp-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.fieldNarrow {
+  display: flex;
+  flex-direction: column;
+  width: 96px;
+  flex-shrink: 0;
+}
+
+.toggles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin: 0;
+  cursor: pointer;
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+
+.toggle input {
+  width: auto;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.toggle span {
+  display: flex;
+  flex-direction: column;
+}
+
+.toggle small {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}

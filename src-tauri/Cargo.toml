@@ -1,0 +1,52 @@
+[package]
+name = "selene"
+description = "Selene — a modern SQL editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[lib]
+# The `_lib` suffix avoids a name clash with the binary on Windows.
+# See https://github.com/rust-lang/cargo/issues/8519
+name = "selene_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+selene-core = { path = "../crates/selene-core" }
+tauri = { version = "2", features = [] }
+# `dialog` gives the frontend a native save-file picker for exports.
+tauri-plugin-dialog = "2"
+# `log` provides the global logger sink (stdout + per-OS log dir + webview).
+tauri-plugin-log = "2"
+# Cross-platform filesystem change notifications for two-way file sync (an
+# external agent editing an open `.sql` updates the tab). Watches are recursive
+# over folders; events are filtered to `.sql` and pushed to the frontend.
+notify = "6"
+# `canonicalize` without the Windows `\\?\` UNC prefix (no-op delegate to std on
+# Unix), so watcher-reported paths match the canonical paths stored on tabs.
+dunce = "1"
+serde.workspace = true
+serde_json.workspace = true
+# `RowSink` is an `#[async_trait]` trait, so the channel/progress sinks here
+# need the same attribute to implement it.
+async-trait.workspace = true
+# Async runtime: `query_run`/`export_result` spawn detached tasks and the
+# session/connection state is guarded by `tokio::sync::Mutex` so a held lock can
+# be awaited across `.await` points inside a command.
+tokio = { workspace = true }
+# Stable, opaque ids for connections, sessions, and running queries.
+uuid = { workspace = true, features = ["v4"] }
+# Structured instrumentation. The `log` feature makes `tracing` events fall
+# through to the global `log` logger that `tauri-plugin-log` installs when no
+# `tracing` subscriber is set, so we get one logging pipeline without pulling in
+# `tracing-subscriber`. Never used to log SQL text, row data, or secrets above
+# TRACE/DEBUG (see `commands` docs).
+tracing = { workspace = true, features = ["log"] }
+
+[dev-dependencies]
+# Hermetic temp directories for the ConnectionStore round-trip tests.
+tempfile = "3"

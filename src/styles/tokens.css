@@ -1,0 +1,151 @@
+/**
+ * Design tokens for Selene. Dark-theme-first: the defaults on :root are the
+ * dark palette; `:root[data-theme="light"]` overrides them. Components only
+ * ever reference these variables, never hard-coded colors.
+ */
+
+:root {
+  /* Surfaces (back to front) */
+  --canvas: #08090c; /* the "desktop" behind the floating islands */
+  --bg: #0e1116;
+  --surface: #161b22;
+  --surface-2: #1c222b;
+  --surface-hover: #222a35;
+  --border: #2a313c;
+  --border-strong: #3a434f;
+
+  /* Text */
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-faint: #6e7681;
+
+  /* Accent */
+  --accent: #4493f8;
+  --accent-hover: #58a6ff;
+  --accent-contrast: #ffffff;
+
+  /* Semantic */
+  --danger: #f85149;
+  --danger-bg: #3d1d1d;
+  --warning: #d29922;
+  --warning-bg: #3a2d12;
+  --success: #3fb950;
+  --info: #4493f8;
+
+  /* Typography */
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", "Fira Code", "Cascadia Code", ui-monospace,
+    "Menlo", "Consolas", monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --gap-island: var(--sp-2); /* canvas gap between floating islands */
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 12px; /* island corners (rounder than the 10px modal) */
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
+
+  /*
+   * Motion. The whole UI animates from this one scale — components reference
+   * these tokens, never raw durations/curves, so timing stays coherent and a
+   * single edit retunes the whole feel. Durations mirror `src/lib/motion.ts`
+   * (the JS side that drives mount/unmount timing); keep the two in sync.
+   *
+   * Easings: `out` decelerates (entrances feel snappy then settle), `in`
+   * accelerates (exits get out of the way), `in-out` is for things that move
+   * between two states, and `spring` adds a restrained overshoot for "pops".
+   */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+
+  --dur-1: 90ms; /* micro: hover, press, focus */
+  --dur-2: 150ms; /* fast: small UI — menus, toggles, tabs */
+  --dur-3: 220ms; /* base: modals, panels, reveals */
+  --dur-4: 360ms; /* slow: large or emphasis transitions */
+
+  /* Layout constants */
+  --sidebar-w: 280px;
+  --tabbar-h: 38px;
+  --statusbar-h: 28px;
+}
+
+:root[data-theme="light"] {
+  --canvas: #e7ebef; /* soft grey so white islands pop */
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #f0f3f6;
+  --surface-hover: #e9eef3;
+  --border: #d8dee4;
+  --border-strong: #c2cbd4;
+
+  --text: #1f2328;
+  --text-muted: #59636e;
+  --text-faint: #818b96;
+
+  --accent: #0969da;
+  --accent-hover: #0a5cc0;
+  --accent-contrast: #ffffff;
+
+  --danger: #cf222e;
+  --danger-bg: #ffebe9;
+  --warning: #9a6700;
+  --warning-bg: #fff8c5;
+  --success: #1a7f37;
+  --info: #0969da;
+
+  --shadow-sm: 0 1px 2px rgba(31, 35, 40, 0.1);
+  --shadow-md: 0 4px 16px rgba(31, 35, 40, 0.15);
+  --shadow-lg: 0 12px 40px rgba(31, 35, 40, 0.2);
+}
+
+/* Retro — warm Gruvbox-inspired palette. Earthy cream backgrounds, terracotta
+   accents, sepia text. A light theme for people who prefer warmth over sterility. */
+:root[data-theme="retro"] {
+  --canvas: #e8d5a8; /* deeper tan, just below the cream surfaces */
+  --bg: #f2e5bc;
+  --surface: #fbf1c7;
+  --surface-2: #ebdbb2;
+  --surface-hover: #d5c4a1;
+  --border: #bdae93;
+  --border-strong: #a89984;
+
+  --text: #3c3836;
+  --text-muted: #665c54;
+  --text-faint: #7c6f64;
+
+  --accent: #458588;
+  --accent-hover: #689d6a;
+  --accent-contrast: #fbf1c7;
+
+  --danger: #cc241d;
+  --danger-bg: #f9d8d6;
+  --warning: #d79921;
+  --warning-bg: #f9f0c1;
+  --success: #98971a;
+  --info: #458588;
+
+  --shadow-sm: 0 1px 2px rgba(60, 56, 54, 0.12);
+  --shadow-md: 0 4px 16px rgba(60, 56, 54, 0.18);
+  --shadow-lg: 0 12px 40px rgba(60, 56, 54, 0.24);
+}

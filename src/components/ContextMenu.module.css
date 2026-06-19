@@ -1,0 +1,54 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 200px;
+  padding: var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  transform-origin: top left;
+}
+
+.menu[data-state="open"] {
+  animation: ctxIn var(--dur-2) var(--ease-out);
+}
+
+.menu[data-state="closed"] {
+  animation: ctxIn var(--dur-1) var(--ease-in) reverse forwards;
+}
+
+@keyframes ctxIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  color: var(--text);
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.item:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.item:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}

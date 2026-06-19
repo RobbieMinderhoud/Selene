@@ -1,0 +1,114 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  /* Top strip of the editor island; the island's overflow:hidden clips its
+     corners to the island radius, so no dividing border is needed. */
+  background: var(--surface);
+}
+
+.sessionSelect {
+  width: auto;
+  min-width: 180px;
+  max-width: 280px;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.runGroup {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.caps {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Editor island: CodeMirror's dark "paper" framed as a card. A flex column so
+   the editor fills the space under the toolbar. */
+.editorIsland {
+  display: flex;
+  flex-direction: column;
+  min-height: 60px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: islandIn var(--dur-3) var(--ease-out) 40ms backwards;
+}
+
+.editorWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Results island: a lighter surface card. Its ResultsPanel fills it; the panel's
+   opaque toolbar (top) and status bar (bottom) mask the rounded corners, so the
+   inner virtualized grid can stay square and scroll cleanly. */
+.resultsIsland {
+  min-height: 60px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: islandIn var(--dur-3) var(--ease-out) 80ms backwards;
+}
+
+/* The splitter is the transparent canvas gap between the two islands. */
+.splitter {
+  height: var(--gap-island);
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+}
+
+/* A small centred grip — not a full-width bar — so the gap reads as canvas. */
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: 2px 42%;
+  border-radius: var(--radius-sm);
+  background: var(--border-strong);
+  opacity: 0.5;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    background var(--dur-2) var(--ease-out);
+}
+
+.splitter:hover::after {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* Shared island entrance (also defined in Sidebar.module.css for its island);
+   transform+opacity only, neutralized by the global reduced-motion guard. */
+@keyframes islandIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}

@@ -1,0 +1,164 @@
+.scroll {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+  outline: none;
+  user-select: none;
+  /*
+   * Fade the grid in when results arrive. Opacity only — animating transform
+   * here would fight the virtualizer's scroll measurement. Re-keyed per run, so
+   * each query's results ease in.
+   */
+  animation: gridIn var(--dur-3) var(--ease-out);
+}
+
+@keyframes gridIn {
+  from {
+    opacity: 0;
+  }
+}
+
+.canvas {
+  position: relative;
+}
+
+.headerRow {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.headerCell {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 var(--sp-2);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  font-size: var(--fs-xs);
+}
+
+.headerName {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerType {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowNumHeader {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--surface-2);
+  align-items: center;
+  flex-direction: row;
+  color: var(--text-faint);
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  /* Only `background` transitions — the inline translateY positioning that the
+   * virtualizer sets per row must stay instant while scrolling. */
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.zebra {
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
+
+.row:hover {
+  background: var(--surface-hover);
+}
+
+.cell {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+.null {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.rowNum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  justify-content: flex-end;
+  color: var(--text-faint);
+  background: var(--bg);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.cell:not(.rowNum) {
+  cursor: pointer;
+}
+
+.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: -1px;
+}
+
+/* Applied on top of .selected when Cmd+C fires; pulses bright then settles. */
+.flash {
+  animation: cellFlash var(--dur-4) var(--ease-out) forwards;
+}
+
+@keyframes cellFlash {
+  0% {
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+}
+
+.zebra .rowNum {
+  background: var(--surface);
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}

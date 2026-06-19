@@ -1,0 +1,190 @@
+/* Floating find/replace panel, top-right of the editor. Token-driven so it
+   tracks every theme; animates in and out via the `data-state` set by usePresence. */
+
+.panel {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: min(560px, calc(100% - var(--sp-4)));
+  transform-origin: top right;
+}
+
+.panel[data-state="open"] {
+  animation: searchIn var(--dur-2) var(--ease-out);
+}
+
+.panel[data-state="closed"] {
+  animation: searchOut var(--dur-2) var(--ease-in) forwards;
+}
+
+@keyframes searchIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@keyframes searchOut {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+/* Thin spine button that expands/collapses the replace row. */
+.expand {
+  align-self: stretch;
+  width: 18px;
+  padding: 0;
+  color: var(--text-faint);
+}
+
+.expandCaret {
+  transition: transform var(--dur-2) var(--ease-spring);
+}
+
+.expandCaret[data-open] {
+  transform: rotate(90deg);
+}
+
+.rows {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+/* Replace row reveals with a small slide so toggling feels alive. */
+.replaceRow {
+  animation: rowIn var(--dur-2) var(--ease-out);
+}
+
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* The combined input box: icon + text field + inline toggles share one frame. */
+.field {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-inline: var(--sp-2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.fieldError,
+.fieldError:focus-within {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.fieldIcon {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+/* Strip the global input chrome — the `.field` frame is the visible box now. */
+.input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: var(--sp-1) 0;
+  font-size: var(--fs-sm);
+}
+
+.input:focus {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+
+.toggles {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Square icon toggles for case / whole-word / regex. */
+.toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.toggle:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.toggleOn,
+.toggleOn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.count {
+  flex-shrink: 0;
+  min-width: 66px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  transition: color var(--dur-1) var(--ease-out);
+}
+
+.countEmpty {
+  color: var(--danger);
+}
+
+.nav {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Square ghost buttons for prev/next/close/replace. */
+.nav button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}

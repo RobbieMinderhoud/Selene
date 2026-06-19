@@ -1,0 +1,395 @@
+/* A floating island: rounded, bordered, elevated; clips its sections. */
+.sidebar {
+  height: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: islandIn var(--dur-3) var(--ease-out);
+}
+
+@keyframes islandIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────────── */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* clips content when collapsed or height-capped */
+  /*
+   * Panels may shrink when their combined heights would overflow the sidebar,
+   * but never below their own header: min-content resolves to the header height
+   * because the body's scroll container (.sectionBodyInner, overflow:hidden)
+   * contributes 0. This keeps every title bar visible and lets the inner lists
+   * scroll within the remaining space, instead of the bottom panel collapsing
+   * to 0 and the overflow being clipped off-screen.
+   */
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-height: min-content;
+}
+
+/* The last panel in the order grows to fill remaining space. */
+.sectionFlex {
+  flex: 1 1 0;
+  /* Inherits min-height:min-content from .section so its header stays visible too. */
+}
+
+/* Drop-target highlight during panel reordering. */
+.sectionOver {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+/* ── Section header ─────────────────────────────────────────────────────────── */
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Horizontal grip for panel reordering; fades in on section hover. */
+.panelGrip {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: grab;
+  flex-shrink: 0;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.section:hover .panelGrip {
+  opacity: 1;
+}
+
+.panelGrip:active {
+  cursor: grabbing;
+}
+
+/* Collapse/expand caret button. */
+.collapseToggle {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease-out);
+}
+
+.collapseToggle:hover {
+  color: var(--text);
+  background: none;
+}
+
+/* The caret icon wrapper rotates 90° when the panel is open. */
+.caretWrap {
+  display: flex;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.caretWrap[data-open="true"] {
+  transform: rotate(90deg);
+}
+
+.panelTitle {
+  flex: 1;
+}
+
+/* ── Section body ───────────────────────────────────────────────────────────── */
+/*
+ * Grid trick for smooth height animation from auto → 0 without JS.
+ * The inner wrapper must have overflow:hidden; the outer wrapper uses
+ * grid-template-rows to animate the available space for the inner child.
+ */
+
+.sectionBody {
+  display: grid;
+  grid-template-rows: 1fr;
+  flex: 1;
+  min-height: 0;
+  transition: grid-template-rows var(--dur-3) var(--ease-out);
+}
+
+.sectionBodyCollapsed {
+  grid-template-rows: 0fr;
+}
+
+.sectionBodyInner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Inter-panel resize handle ──────────────────────────────────────────────── */
+/*
+ * Sits between adjacent panels. Acts as both the visual divider (border-top)
+ * and the vertical resize affordance. A centred line appears on hover.
+ */
+
+.panelResizer {
+  height: 5px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  position: relative;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.panelResizer::after {
+  content: "";
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: transparent;
+  border-radius: 1px;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.panelResizer:hover {
+  border-top-color: var(--accent);
+}
+
+.panelResizer:hover::after {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ── Shared panel affordances ──────────────────────────────────────────────── */
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.sectionHeader button {
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.filesScroll {
+  overflow: auto;
+  padding-bottom: var(--sp-2);
+  flex: 1;
+}
+
+.placeholder {
+  padding: var(--sp-3);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: flex-start;
+}
+
+.loading {
+  flex-direction: row;
+  align-items: center;
+}
+
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  font-size: var(--fs-sm);
+}
+
+.linkBtn:hover {
+  text-decoration: underline;
+  background: none;
+}
+
+/* ── Connections list ────────────────────────────────────────────────────────── */
+
+.connList {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--sp-1) var(--sp-2);
+  overflow: auto;
+  flex: 1;
+}
+
+.connItem {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    opacity var(--dur-1) var(--ease-out);
+  animation: connIn var(--dur-2) var(--ease-out);
+}
+
+.connItem:hover {
+  background: var(--surface-hover);
+}
+
+.connItemDragging {
+  opacity: 0.4;
+}
+
+.connItemOver {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+@keyframes connIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+.connMain {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: var(--sp-2);
+}
+
+.connMain:hover {
+  background: none;
+}
+
+.connName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.connIcon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+  transition:
+    background var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
+}
+
+.dotOn {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: breathe 2.4s var(--ease-in-out) infinite;
+}
+
+.dotConnecting {
+  background: var(--accent);
+  animation: dotPulse 0.9s var(--ease-in-out) infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 3px var(--success);
+  }
+  50% {
+    box-shadow: 0 0 9px var(--success);
+  }
+}
+
+@keyframes dotPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.roBadge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: 3px;
+  padding: 0 3px;
+  flex-shrink: 0;
+}
+
+/* Connection item drag handle: in-layout but invisible at rest. */
+.dragHandle {
+  display: flex;
+  align-items: center;
+  padding-left: var(--sp-1);
+  color: var(--text-faint);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease-out);
+  flex-shrink: 0;
+}
+
+.connItem:hover .dragHandle,
+.connItem:focus-within .dragHandle {
+  opacity: 1;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.connActions {
+  display: flex;
+  gap: 0;
+  padding-right: var(--sp-1);
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.connItem:hover .connActions,
+.connItem:focus-within .connActions {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.connActions button {
+  padding: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+/* ── Schema tree scroll ─────────────────────────────────────────────────────── */
+
+.treeScroll {
+  flex: 1;
+  overflow: auto;
+  padding-bottom: var(--sp-3);
+}
