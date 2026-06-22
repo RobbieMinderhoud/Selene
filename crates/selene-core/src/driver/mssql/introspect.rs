@@ -62,11 +62,12 @@ pub(crate) async fn list_databases(
     client: &mut TiberiusClient,
 ) -> Result<Vec<DatabaseInfo>, CoreError> {
     // `HAS_DBACCESS` filters out databases the login cannot open, avoiding
-    // noise the user could never expand anyway. Offline/restoring DBs return
-    // NULL and are skipped.
-    let sql = "SELECT name, database_id \
+    // noise the user could never expand anyway. We additionally keep OFFLINE
+    // databases (`state = 6`), for which `HAS_DBACCESS` returns NULL, so the UI
+    // can show them and offer "bring online".
+    let sql = "SELECT name, database_id, state_desc \
                FROM sys.databases \
-               WHERE HAS_DBACCESS(name) = 1 \
+               WHERE HAS_DBACCESS(name) = 1 OR state = 6 \
                ORDER BY name";
 
     let rows = fetch_rows(client, sql, &[])
@@ -83,9 +84,14 @@ pub(crate) async fn list_databases(
             .try_get(1)
             .map_err(map_tiberius_err)?
             .unwrap_or(i32::MAX);
+        let state_desc: &str = row
+            .try_get(2)
+            .map_err(map_tiberius_err)?
+            .unwrap_or("ONLINE");
         out.push(DatabaseInfo {
             name: name.to_string(),
             is_system: database_id <= 4,
+            state_desc: state_desc.to_string(),
         });
     }
     Ok(out)

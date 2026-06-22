@@ -128,6 +128,108 @@ pub async fn session_use_database(
     Ok(())
 }
 
+/// Create a new database on the session's server.
+///
+/// Refused on a read-only connection: this is DDL and does not pass through the
+/// SQL guard. The driver bracket-quotes the name (safe as input).
+#[tauri::command]
+pub async fn session_create_database(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: String,
+) -> Result<(), IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    if session.read_only {
+        return Err(IpcError::new(
+            "blocked",
+            "connection is read-only; cannot create a database",
+        ));
+    }
+    session.conn.create_database(&database).await?;
+    tracing::info!(%session_id, %database, "database created");
+    Ok(())
+}
+
+/// Drop a database on the session's server.
+///
+/// Refused on a read-only connection: this is destructive DDL and does not pass
+/// through the SQL guard. Fails if the database is in use by other connections.
+#[tauri::command]
+pub async fn session_drop_database(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: String,
+) -> Result<(), IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    if session.read_only {
+        return Err(IpcError::new(
+            "blocked",
+            "connection is read-only; cannot drop a database",
+        ));
+    }
+    session.conn.drop_database(&database).await?;
+    tracing::info!(%session_id, %database, "database dropped");
+    Ok(())
+}
+
+/// Rename a database on the session's server.
+///
+/// Refused on a read-only connection: this is destructive DDL and does not pass
+/// through the SQL guard. The driver bracket-quotes both names (safe as input).
+#[tauri::command]
+pub async fn session_rename_database(
+    state: State<'_, AppState>,
+    session_id: String,
+    from: String,
+    to: String,
+) -> Result<(), IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    if session.read_only {
+        return Err(IpcError::new(
+            "blocked",
+            "connection is read-only; cannot rename a database",
+        ));
+    }
+    session.conn.rename_database(&from, &to).await?;
+    tracing::info!(%session_id, %from, %to, "database renamed");
+    Ok(())
+}
+
+/// Bring a database online or take it offline.
+///
+/// Taking a database offline terminates all other connections to it
+/// (`ROLLBACK IMMEDIATE`). Refused on a read-only connection.
+#[tauri::command]
+pub async fn session_set_database_online(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: String,
+    online: bool,
+) -> Result<(), IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    if session.read_only {
+        return Err(IpcError::new(
+            "blocked",
+            "connection is read-only; cannot change database state",
+        ));
+    }
+    session.conn.set_database_online(&database, online).await?;
+    tracing::info!(%session_id, %database, online, "database state changed");
+    Ok(())
+}
+
 /// Return the name of the current database for the session.
 ///
 /// Useful after a `USE <database>` statement — the frontend calls this to

@@ -66,8 +66,13 @@ pub async fn set_health_check(
     interval_secs: u64,
 ) -> Result<(), IpcError> {
     let interval = Duration::from_secs(interval_secs.max(MIN_INTERVAL_SECS));
-    *state.health.lock().expect("health config mutex poisoned") = HealthConfig { enabled, interval };
-    tracing::info!(enabled, interval_secs = interval.as_secs(), "health check reconfigured");
+    *state.health.lock().expect("health config mutex poisoned") =
+        HealthConfig { enabled, interval };
+    tracing::info!(
+        enabled,
+        interval_secs = interval.as_secs(),
+        "health check reconfigured"
+    );
     Ok(())
 }
 

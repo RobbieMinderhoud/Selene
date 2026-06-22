@@ -1,0 +1,55 @@
+/* Floating filter chip, top-right of the panel body. Non-interactive. */
+.indicator {
+  position: absolute;
+  top: var(--sp-1);
+  right: var(--sp-2);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: calc(100% - var(--sp-3));
+  padding: 2px var(--sp-2);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  color: var(--text);
+  pointer-events: none;
+  box-shadow: var(--shadow-1, 0 2px 6px rgb(0 0 0 / 0.2));
+}
+
+.indicator[data-state="open"] {
+  animation: chipIn var(--dur-1) var(--ease-out);
+}
+
+.indicator[data-state="closed"] {
+  animation: chipOut var(--dur-1) var(--ease-in);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes chipOut {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

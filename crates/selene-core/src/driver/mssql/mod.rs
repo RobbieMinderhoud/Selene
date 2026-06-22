@@ -317,6 +317,77 @@ impl Connection for MssqlConnection {
         Ok(())
     }
 
+    async fn create_database(&mut self, database: &str) -> Result<(), CoreError> {
+        let sql = format!("CREATE DATABASE {}", introspect::quote_ident(database));
+        self.client
+            .simple_query(&sql)
+            .await
+            .map_err(map_tiberius_err)?
+            .into_results()
+            .await
+            .map_err(map_tiberius_err)?;
+        Ok(())
+    }
+
+    async fn drop_database(&mut self, database: &str) -> Result<(), CoreError> {
+        // Run from `master` so we're not sitting in the database we're dropping.
+        // No ROLLBACK IMMEDIATE: if other connections hold it, SQL Server's error
+        // surfaces rather than silently terminating their sessions.
+        let sql = format!(
+            "USE master; DROP DATABASE {}",
+            introspect::quote_ident(database),
+        );
+        self.client
+            .simple_query(&sql)
+            .await
+            .map_err(map_tiberius_err)?
+            .into_results()
+            .await
+            .map_err(map_tiberius_err)?;
+        Ok(())
+    }
+
+    async fn rename_database(&mut self, from: &str, to: &str) -> Result<(), CoreError> {
+        // Run from `master` so we never alter the database in our own context.
+        let sql = format!(
+            "USE master; ALTER DATABASE {} MODIFY NAME = {}",
+            introspect::quote_ident(from),
+            introspect::quote_ident(to),
+        );
+        self.client
+            .simple_query(&sql)
+            .await
+            .map_err(map_tiberius_err)?
+            .into_results()
+            .await
+            .map_err(map_tiberius_err)?;
+        Ok(())
+    }
+
+    async fn set_database_online(&mut self, database: &str, online: bool) -> Result<(), CoreError> {
+        // OFFLINE uses ROLLBACK IMMEDIATE to terminate other connections at once
+        // rather than waiting for them to close. Run from `master` so we're not
+        // sitting in the database we're taking offline.
+        let target = if online {
+            "ONLINE"
+        } else {
+            "OFFLINE WITH ROLLBACK IMMEDIATE"
+        };
+        let sql = format!(
+            "USE master; ALTER DATABASE {} SET {}",
+            introspect::quote_ident(database),
+            target,
+        );
+        self.client
+            .simple_query(&sql)
+            .await
+            .map_err(map_tiberius_err)?
+            .into_results()
+            .await
+            .map_err(map_tiberius_err)?;
+        Ok(())
+    }
+
     async fn create_table(
         &mut self,
         database: Option<&str>,

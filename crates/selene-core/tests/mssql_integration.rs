@@ -847,6 +847,89 @@ async fn introspection_lists_databases_schemas_tables_columns() {
 }
 
 // ---------------------------------------------------------------------------
+// 7b. database management: rename + offline/online
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
+async fn rename_and_offline_online_round_trip() {
+    let mut fixture = start_mssql().await;
+    let conn = fixture.conn.as_mut();
+
+    exec_ok(
+        conn,
+        "IF DB_ID('selene_mgmt') IS NULL CREATE DATABASE selene_mgmt",
+    )
+    .await;
+
+    // Rename, then confirm the new name is listed and the old one is gone.
+    conn.rename_database("selene_mgmt", "selene_mgmt2")
+        .await
+        .expect("rename_database");
+    let dbs = conn.list_databases().await.expect("list after rename");
+    assert!(
+        dbs.iter().any(|d| d.name == "selene_mgmt2"),
+        "renamed database should be listed"
+    );
+    assert!(
+        !dbs.iter().any(|d| d.name == "selene_mgmt"),
+        "old database name should be gone"
+    );
+
+    // Take offline: it must still be listed (so the UI can bring it back),
+    // now reporting state_desc = OFFLINE.
+    conn.set_database_online("selene_mgmt2", false)
+        .await
+        .expect("set offline");
+    let dbs = conn.list_databases().await.expect("list after offline");
+    let offline = dbs
+        .iter()
+        .find(|d| d.name == "selene_mgmt2")
+        .expect("offline database still listed");
+    assert_eq!(offline.state_desc, "OFFLINE");
+
+    // Bring it back online.
+    conn.set_database_online("selene_mgmt2", true)
+        .await
+        .expect("set online");
+    let dbs = conn.list_databases().await.expect("list after online");
+    let online = dbs
+        .iter()
+        .find(|d| d.name == "selene_mgmt2")
+        .expect("online database listed");
+    assert_eq!(online.state_desc, "ONLINE");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
+async fn create_and_drop_database_round_trip() {
+    let mut fixture = start_mssql().await;
+    let conn = fixture.conn.as_mut();
+
+    // Create, then confirm it is listed and ONLINE.
+    conn.create_database("selene_create")
+        .await
+        .expect("create_database");
+    let dbs = conn.list_databases().await.expect("list after create");
+    let created = dbs
+        .iter()
+        .find(|d| d.name == "selene_create")
+        .expect("created database should be listed");
+    assert_eq!(created.state_desc, "ONLINE");
+    assert!(!created.is_system);
+
+    // Drop, then confirm it is gone.
+    conn.drop_database("selene_create")
+        .await
+        .expect("drop_database");
+    let dbs = conn.list_databases().await.expect("list after drop");
+    assert!(
+        !dbs.iter().any(|d| d.name == "selene_create"),
+        "dropped database should no longer be listed"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 8. export round-trip (CSV)
 // ---------------------------------------------------------------------------
 

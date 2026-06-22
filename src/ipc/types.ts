@@ -265,6 +265,8 @@ export interface SessionLostEvent {
 export interface DatabaseInfo {
   name: string;
   is_system: boolean;
+  /** Availability state, e.g. "ONLINE", "OFFLINE". */
+  state_desc: string;
 }
 
 export interface SchemaInfo {

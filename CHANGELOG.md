@@ -8,7 +8,22 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
-## [Unreleased]
+## [1.2.0] - 2026-06-22
+
+### Added
+
+- Database management from the schema tree's right-click menu: **create** a new
+  database (right-click the connection row → "New database…", inline name entry),
+  **drop** a database (you must re-type the database name to confirm — the action
+  is permanent), **rename** a database (inline edit in the tree), **take it
+  offline** (with a confirmation — this immediately drops all connections to it),
+  and **bring it back online**. Offline databases stay listed (shown muted with an
+  "OFFLINE" badge) so they can be brought back. Drop/rename/offline are disabled
+  for system databases, and all of these are disabled on read-only connections.
+- **Type-to-filter** for the Connections, Files, and Schema panels: with a panel
+  focused, just start typing to filter it — no search box. A small chip shows the
+  current filter; Backspace edits it and Escape clears it. Filtering is shallow
+  (it matches what's already loaded plus the top level; expanded nodes stay open).
 
 ## [1.1.0] - 2026-06-22
 

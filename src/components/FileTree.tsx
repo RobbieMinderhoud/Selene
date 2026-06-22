@@ -12,18 +12,28 @@ import { useState } from "react";
 
 import type { FsEntry } from "../ipc/types";
 import { closeFolder, openFileFromPath } from "../lib/fileActions";
+import { matches } from "../lib/filterMatch";
 import { basename } from "../lib/path";
 import { useDir } from "../lib/queries";
 import { useEditorStore } from "../state/editorStore";
 import { CaretIcon, CloseIcon, FileIcon, FolderIcon } from "./icons";
 import styles from "./FileTree.module.css";
 
-function FileRow({ entry, depth }: { entry: FsEntry; depth: number }) {
+function FileRow({
+  entry,
+  depth,
+  filter,
+}: {
+  entry: FsEntry;
+  depth: number;
+  filter: string;
+}) {
   // Narrow subscription: only whether *this* path is open, so other tabs'
   // edits don't repaint the whole tree.
   const isOpen = useEditorStore((s) =>
     s.tabs.some((t) => t.filePath === entry.path),
   );
+  if (!matches(entry.name, filter)) return null;
   return (
     <div
       className={`${styles.row} ${isOpen ? styles.active : ""}`}
@@ -48,8 +58,19 @@ function FileRow({ entry, depth }: { entry: FsEntry; depth: number }) {
   );
 }
 
-function DirNode({ entry, depth }: { entry: FsEntry; depth: number }) {
+function DirNode({
+  entry,
+  depth,
+  filter,
+}: {
+  entry: FsEntry;
+  depth: number;
+  filter: string;
+}) {
   const [open, setOpen] = useState(false);
+  // Self-hide unless the name matches or the folder is expanded (so drilling in
+  // is never undone by typing). Shallow: collapsed folders aren't fetched.
+  if (!matches(entry.name, filter) && !open) return null;
   return (
     <>
       <div
@@ -78,12 +99,22 @@ function DirNode({ entry, depth }: { entry: FsEntry; depth: number }) {
         </span>
         <span className={styles.label}>{entry.name}</span>
       </div>
-      {open && <DirChildren path={entry.path} depth={depth + 1} />}
+      {open && (
+        <DirChildren path={entry.path} depth={depth + 1} filter={filter} />
+      )}
     </>
   );
 }
 
-function DirChildren({ path, depth }: { path: string; depth: number }) {
+function DirChildren({
+  path,
+  depth,
+  filter,
+}: {
+  path: string;
+  depth: number;
+  filter: string;
+}) {
   const { data, isLoading, error } = useDir(path, true);
   if (isLoading) return <Meta depth={depth} label="Loading…" spinner />;
   if (error) return <Meta depth={depth} label="Failed to load" error />;
@@ -93,16 +124,32 @@ function DirChildren({ path, depth }: { path: string; depth: number }) {
     <>
       {entries.map((entry) =>
         entry.isDir ? (
-          <DirNode key={entry.path} entry={entry} depth={depth} />
+          <DirNode
+            key={entry.path}
+            entry={entry}
+            depth={depth}
+            filter={filter}
+          />
         ) : (
-          <FileRow key={entry.path} entry={entry} depth={depth} />
+          <FileRow
+            key={entry.path}
+            entry={entry}
+            depth={depth}
+            filter={filter}
+          />
         ),
       )}
     </>
   );
 }
 
-export function FileTree({ folder }: { folder: string }) {
+export function FileTree({
+  folder,
+  filter = "",
+}: {
+  folder: string;
+  filter?: string;
+}) {
   const [open, setOpen] = useState(true);
   return (
     <div className={styles.tree} role="tree">
@@ -130,7 +177,7 @@ export function FileTree({ folder }: { folder: string }) {
           <CloseIcon />
         </button>
       </div>
-      {open && <DirChildren path={folder} depth={1} />}
+      {open && <DirChildren path={folder} depth={1} filter={filter} />}
     </div>
   );
 }

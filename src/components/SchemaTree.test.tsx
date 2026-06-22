@@ -70,8 +70,8 @@ beforeEach(() => {
   mockColumns.mockReset();
 
   mockDatabases.mockResolvedValue([
-    { name: "AppDb", is_system: false },
-    { name: "master", is_system: true },
+    { name: "AppDb", is_system: false, state_desc: "ONLINE" },
+    { name: "master", is_system: true, state_desc: "ONLINE" },
   ]);
   mockSchemas.mockResolvedValue([{ name: "dbo" }, { name: "sales" }]);
   mockTables.mockResolvedValue([

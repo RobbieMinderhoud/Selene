@@ -22,7 +22,9 @@ import { asIpcError } from "../ipc/types";
 import type { ConnectionSpec } from "../ipc/types";
 import { connectSession } from "../lib/connect";
 import { openFileDialog, openFolderDialog } from "../lib/fileActions";
+import { matches } from "../lib/filterMatch";
 import { qk, useConnections } from "../lib/queries";
+import { useTypeToFilter } from "../lib/useTypeToFilter";
 import { bindTabConnection, disposeConnectionTabs } from "../lib/tabSession";
 import { useEditorStore } from "../state/editorStore";
 import { type PanelId, useLayoutStore } from "../state/layoutStore";
@@ -31,6 +33,7 @@ import { toastError } from "../state/toastStore";
 import { useWorkspaceStore } from "../state/workspaceStore";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { FileTree } from "./FileTree";
+import { FilterIndicator } from "./FilterIndicator";
 import {
   AddIcon,
   CaretIcon,
@@ -74,6 +77,16 @@ export function Sidebar() {
   const toggleCollapsed = useLayoutStore((s) => s.toggleCollapsed);
   const setPanelOrder = useLayoutStore((s) => s.setPanelOrder);
   const setPanelH = useLayoutStore((s) => s.setPanelH);
+
+  // ── Type-to-filter (no visible box; type while a panel has focus) ──────────
+  const connFilter = useTypeToFilter();
+  const filesFilter = useTypeToFilter();
+  const schemaFilter = useTypeToFilter();
+  const filters: Record<PanelId, ReturnType<typeof useTypeToFilter>> = {
+    connections: connFilter,
+    files: filesFilter,
+    schema: schemaFilter,
+  };
 
   // ── Connection drag-to-reorder ─────────────────────────────────────────────
   const dragIndex = useRef<number | null>(null);
@@ -264,7 +277,10 @@ export function Sidebar() {
 
   function renderPanelContent(panelId: PanelId) {
     switch (panelId) {
-      case "connections":
+      case "connections": {
+        const visible = connections.filter((s) =>
+          matches(s.name, connFilter.query),
+        );
         return isLoading ? (
           <div className={`${styles.placeholder} ${styles.loading}`}>
             <span className="spinner" aria-hidden /> Loading…
@@ -276,9 +292,14 @@ export function Sidebar() {
               Create one
             </button>
           </div>
+        ) : visible.length === 0 ? (
+          <div className={styles.placeholder}>No matches.</div>
         ) : (
           <ul className={styles.connList}>
-            {connections.map((spec, idx) => {
+            {visible.map((spec) => {
+              // Drag uses the index into the full list so reordering stays
+              // correct even while a filter hides some rows.
+              const idx = connections.indexOf(spec);
               const isConnected = connectedIds.has(spec.id);
               const isDraggingItem = dragIndex.current === idx;
               const isOverItem = overIndex === idx;
@@ -353,6 +374,7 @@ export function Sidebar() {
             })}
           </ul>
         );
+      }
 
       case "files":
         return openFolders.length === 0 ? (
@@ -369,7 +391,11 @@ export function Sidebar() {
         ) : (
           <div className={styles.filesScroll}>
             {openFolders.map((folder) => (
-              <FileTree key={folder} folder={folder} />
+              <FileTree
+                key={folder}
+                folder={folder}
+                filter={filesFilter.query}
+              />
             ))}
           </div>
         );
@@ -390,6 +416,7 @@ export function Sidebar() {
                     key={sid}
                     session={session}
                     onDisconnect={() => disconnect(sid)}
+                    filter={schemaFilter.query}
                   />
                 );
               })
@@ -517,7 +544,16 @@ export function Sidebar() {
                   .filter(Boolean)
                   .join(" ")}
               >
-                <div className={styles.sectionBodyInner}>
+                {/* tabIndex lets a click on empty panel space focus the
+                    wrapper, so type-to-filter works without first focusing a
+                    row. Keystrokes bubble here from focused rows/buttons. */}
+                <div
+                  className={styles.sectionBodyInner}
+                  style={{ position: "relative" }}
+                  tabIndex={-1}
+                  onKeyDown={filters[panelId].onKeyDown}
+                >
+                  <FilterIndicator query={filters[panelId].query} />
                   {renderPanelContent(panelId)}
                 </div>
               </div>

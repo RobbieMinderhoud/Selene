@@ -206,6 +206,44 @@ pub trait Connection: Send {
         ))
     }
 
+    /// Create a new database named `database`. Drivers must bracket/quote the
+    /// identifier (the name comes from user input).
+    async fn create_database(&mut self, _database: &str) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "create_database is not supported by this driver".into(),
+        ))
+    }
+
+    /// Drop the database named `database`. Drivers must bracket/quote the
+    /// identifier (the name comes from user input). Fails if the database is in
+    /// use by other connections.
+    async fn drop_database(&mut self, _database: &str) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "drop_database is not supported by this driver".into(),
+        ))
+    }
+
+    /// Rename a database from `from` to `to`. Drivers must bracket/quote both
+    /// identifiers (the names come from user input).
+    async fn rename_database(&mut self, _from: &str, _to: &str) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "rename_database is not supported by this driver".into(),
+        ))
+    }
+
+    /// Bring `database` online (`online = true`) or take it offline
+    /// (`online = false`). Taking a database offline terminates all other
+    /// connections to it. Drivers must bracket/quote the identifier.
+    async fn set_database_online(
+        &mut self,
+        _database: &str,
+        _online: bool,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "set_database_online is not supported by this driver".into(),
+        ))
+    }
+
     /// Create a table from a column spec (for "import as new table"). Drivers
     /// must bracket/quote every identifier and validate each `sql_type`.
     async fn create_table(

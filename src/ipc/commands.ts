@@ -120,6 +120,47 @@ export function sessionCurrentDatabase(sessionId: string): Promise<string> {
   return invoke("session_current_database", { sessionId });
 }
 
+/** `session_create_database` -> create a new database. Refused on read-only. */
+export function sessionCreateDatabase(
+  sessionId: string,
+  database: string,
+): Promise<void> {
+  return invoke("session_create_database", { sessionId, database });
+}
+
+/**
+ * `session_drop_database` -> drop a database. Refused on read-only; fails if the
+ * database is in use by other connections.
+ */
+export function sessionDropDatabase(
+  sessionId: string,
+  database: string,
+): Promise<void> {
+  return invoke("session_drop_database", { sessionId, database });
+}
+
+/** `session_rename_database` -> rename a database. Refused on read-only. */
+export function sessionRenameDatabase(
+  sessionId: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  return invoke("session_rename_database", { sessionId, from, to });
+}
+
+/**
+ * `session_set_database_online` -> bring a database online (`online = true`)
+ * or take it offline (`online = false`, terminating all connections to it).
+ * Refused on a read-only connection.
+ */
+export function sessionSetDatabaseOnline(
+  sessionId: string,
+  database: string,
+  online: boolean,
+): Promise<void> {
+  return invoke("session_set_database_online", { sessionId, database, online });
+}
+
 // --- Connection health ----------------------------------------------------
 
 /**

@@ -10,14 +10,24 @@
 
 import { createContext, useCallback, useContext, useState } from "react";
 import type { ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
+import {
+  sessionCreateDatabase,
+  sessionDropDatabase,
+  sessionRenameDatabase,
+  sessionSetDatabaseOnline,
+} from "../ipc/commands";
+import { asIpcError } from "../ipc/types";
 import type {
   ColumnInfo,
   DatabaseInfo,
   SchemaInfo,
   TableInfo,
 } from "../ipc/types";
+import { matches } from "../lib/filterMatch";
 import {
+  qk,
   useColumns,
   useDatabases,
   useSchemas,
@@ -26,7 +36,9 @@ import {
 import { useEditorStore } from "../state/editorStore";
 import { useImportStore } from "../state/importStore";
 import type { LiveSession } from "../state/sessionStore";
+import { toastError } from "../state/toastStore";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { Modal } from "./Modal";
 import {
   CaretIcon,
   ColumnIcon,
@@ -43,7 +55,29 @@ import styles from "./SchemaTree.module.css";
 interface SchemaTreeProps {
   session: LiveSession;
   onDisconnect: () => void;
+  /** Type-to-filter query; nodes self-hide unless their name matches (or they
+   *  are expanded, so drilling in is never undone by typing). */
+  filter?: string;
 }
+
+/** A destructive-action confirmation request raised by a tree node. */
+interface ConfirmRequest {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  /** When set, the user must re-type this exact text before the confirm button
+   *  enables (guards an irreversible action like dropping a database). */
+  requireText?: string;
+}
+
+/** Active type-to-filter query, threaded to every level without prop drilling. */
+const FilterContext = createContext<string>("");
+
+/** Opens the tree's shared confirm dialog (for destructive database actions). */
+const ConfirmContext = createContext<(req: ConfirmRequest) => void>(
+  () => undefined,
+);
 
 /** Quote a SQL identifier for MSSQL (brackets, escape `]`). */
 function quoteIdent(name: string): string {
@@ -71,6 +105,7 @@ function Row({
   label,
   badge,
   title,
+  dim,
 }: {
   depth: number;
   expandable: boolean;
@@ -83,12 +118,17 @@ function Row({
   label: string;
   badge?: string;
   title?: string;
+  /** Render the row muted (e.g. an offline database). */
+  dim?: boolean;
 }) {
   const activate = onActivate ?? onToggle;
   return (
     <div
       className={styles.row}
-      style={{ paddingLeft: depth * 14 + 6 }}
+      style={{
+        paddingLeft: depth * 14 + 6,
+        ...(dim ? { color: "var(--text-faint)" } : null),
+      }}
       role="treeitem"
       aria-expanded={expandable ? !!expanded : undefined}
       tabIndex={0}
@@ -139,6 +179,7 @@ function ColumnsLevel({
   table: string;
   depth: number;
 }) {
+  const query = useContext(FilterContext);
   const { data, isLoading, error } = useColumns(
     sessionId,
     database,
@@ -150,17 +191,19 @@ function ColumnsLevel({
   if (error) return <ErrorRow depth={depth} />;
   return (
     <>
-      {(data ?? []).map((col: ColumnInfo) => (
-        <Row
-          key={col.name}
-          depth={depth}
-          expandable={false}
-          icon={col.is_primary_key ? <PrimaryKeyIcon /> : <ColumnIcon />}
-          label={col.name}
-          badge={col.data_type}
-          title={`${col.name} ${col.data_type}${col.nullable ? "" : " NOT NULL"}`}
-        />
-      ))}
+      {(data ?? [])
+        .filter((col) => matches(col.name, query))
+        .map((col: ColumnInfo) => (
+          <Row
+            key={col.name}
+            depth={depth}
+            expandable={false}
+            icon={col.is_primary_key ? <PrimaryKeyIcon /> : <ColumnIcon />}
+            label={col.name}
+            badge={col.data_type}
+            title={`${col.name} ${col.data_type}${col.nullable ? "" : " NOT NULL"}`}
+          />
+        ))}
     </>
   );
 }
@@ -182,7 +225,12 @@ function TableNode({
   const appendSql = useEditorStore((s) => s.appendSql);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const openMenu = useContext(MenuContext);
+  const query = useContext(FilterContext);
   const requestImport = useImportStore((s) => s.requestImport);
+
+  // Self-hide unless the name matches or the node is expanded (so drilling in
+  // is never undone by typing).
+  if (!matches(table.name, query) && !open) return null;
 
   function insertSelect() {
     if (!activeTabId) return;
@@ -286,7 +334,11 @@ function SchemaNode({
 }) {
   const [open, setOpen] = useState(false);
   const openMenu = useContext(MenuContext);
+  const query = useContext(FilterContext);
   const requestImport = useImportStore((s) => s.requestImport);
+
+  if (!matches(schema.name, query) && !open) return null;
+
   return (
     <>
       <Row
@@ -360,26 +412,158 @@ function DatabaseNode({
   depth: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(database.name);
   const sessionId = session.info.sessionId;
   const hasSchemas = session.info.capabilities.schemas;
+  const openMenu = useContext(MenuContext);
+  const requestConfirm = useContext(ConfirmContext);
+  const query = useContext(FilterContext);
+  const queryClient = useQueryClient();
+
+  const isOnline = database.state_desc === "ONLINE";
+  // System databases and read-only connections can't be managed.
+  const canManage = !database.is_system && !session.readOnly;
+
+  if (!matches(database.name, query) && !open) return null;
+
+  function refresh() {
+    return queryClient.invalidateQueries({ queryKey: qk.databases(sessionId) });
+  }
+
+  async function commitRename() {
+    const next = draft.trim();
+    setRenaming(false);
+    if (!next || next === database.name) return;
+    try {
+      await sessionRenameDatabase(sessionId, database.name, next);
+      await refresh();
+    } catch (e) {
+      toastError("Could not rename database", asIpcError(e).message);
+    }
+  }
+
+  async function setOnline(online: boolean) {
+    try {
+      await sessionSetDatabaseOnline(sessionId, database.name, online);
+      await refresh();
+    } catch (e) {
+      toastError(
+        online
+          ? "Could not bring database online"
+          : "Could not take database offline",
+        asIpcError(e).message,
+      );
+    }
+  }
+
+  async function drop() {
+    try {
+      await sessionDropDatabase(sessionId, database.name);
+      await refresh();
+    } catch (e) {
+      toastError("Could not drop database", asIpcError(e).message);
+    }
+  }
+
+  function openContextMenu(e: React.MouseEvent) {
+    const items: ContextMenuItem[] = [
+      {
+        label: "Rename…",
+        disabled: !canManage,
+        onSelect: () => {
+          setDraft(database.name);
+          setRenaming(true);
+        },
+      },
+      isOnline
+        ? {
+            label: "Take offline",
+            disabled: !canManage,
+            onSelect: () =>
+              requestConfirm({
+                title: "Take database offline",
+                confirmLabel: "Take offline",
+                message: `Take "${database.name}" offline? This immediately terminates all connections to it (ROLLBACK IMMEDIATE).`,
+                onConfirm: () => void setOnline(false),
+              }),
+          }
+        : {
+            label: "Bring online",
+            disabled: !canManage,
+            onSelect: () => void setOnline(true),
+          },
+      {
+        label: "Drop…",
+        disabled: !canManage,
+        onSelect: () =>
+          requestConfirm({
+            title: "Drop database",
+            confirmLabel: "Drop",
+            message: `Permanently drop "${database.name}"? This deletes the database and all its data. This cannot be undone.`,
+            requireText: database.name,
+            onConfirm: () => void drop(),
+          }),
+      },
+    ];
+    openMenu(e, items);
+  }
+
   return (
     <>
-      <Row
-        depth={depth}
-        expandable
-        expanded={open}
-        onToggle={() => setOpen((o) => !o)}
-        icon={
-          database.is_system ? (
-            <DatabaseIcon style={{ color: "var(--text-faint)" }} />
-          ) : (
+      {renaming ? (
+        <div className={styles.row} style={{ paddingLeft: depth * 14 + 6 }}>
+          <span className={styles.caretSpacer} aria-hidden />
+          <span className={styles.icon} aria-hidden>
             <DatabaseIcon />
-          )
-        }
-        label={database.name}
-        title={database.is_system ? `${database.name} (system)` : database.name}
-      />
+          </span>
+          <input
+            className={styles.renameInput}
+            autoFocus
+            value={draft}
+            aria-label={`Rename database ${database.name}`}
+            onChange={(e) => setDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void commitRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setRenaming(false);
+              }
+            }}
+            onBlur={() => setRenaming(false)}
+          />
+        </div>
+      ) : (
+        <Row
+          depth={depth}
+          // Offline databases can't be browsed; only managed via the menu.
+          expandable={isOnline}
+          expanded={open}
+          onToggle={isOnline ? () => setOpen((o) => !o) : undefined}
+          onContextMenu={openContextMenu}
+          dim={!isOnline}
+          icon={
+            database.is_system ? (
+              <DatabaseIcon style={{ color: "var(--text-faint)" }} />
+            ) : (
+              <DatabaseIcon />
+            )
+          }
+          label={database.name}
+          badge={isOnline ? undefined : database.state_desc}
+          title={
+            database.is_system
+              ? `${database.name} (system, ${database.state_desc})`
+              : `${database.name} (${database.state_desc})`
+          }
+        />
+      )}
       {open &&
+        isOnline &&
         (hasSchemas ? (
           <SchemasLevel
             sessionId={sessionId}
@@ -400,7 +584,11 @@ function DatabaseNode({
   );
 }
 
-export function SchemaTree({ session, onDisconnect }: SchemaTreeProps) {
+export function SchemaTree({
+  session,
+  onDisconnect,
+  filter = "",
+}: SchemaTreeProps) {
   const [open, setOpen] = useState(true);
   const sessionId = session.info.sessionId;
   const { data, isLoading, error } = useDatabases(sessionId, open);
@@ -423,56 +611,193 @@ export function SchemaTree({ session, onDisconnect }: SchemaTreeProps) {
     [],
   );
 
+  // One shared confirm dialog per tree for destructive database actions.
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // For type-to-confirm requests: the text the user has typed so far.
+  const [confirmInput, setConfirmInput] = useState("");
+  const requestConfirm = useCallback((req: ConfirmRequest) => {
+    setConfirm(req);
+    setConfirmInput("");
+    setConfirmOpen(true);
+  }, []);
+  // Type-to-confirm requests stay disabled until the typed text matches exactly.
+  const confirmReady =
+    confirm?.requireText == null || confirmInput === confirm.requireText;
+
+  // Inline "new database" input, opened from the server-row context menu.
+  const queryClient = useQueryClient();
+  const [creating, setCreating] = useState(false);
+  const [createDraft, setCreateDraft] = useState("");
+
+  async function commitCreate() {
+    const name = createDraft.trim();
+    setCreating(false);
+    setCreateDraft("");
+    if (!name) return;
+    try {
+      await sessionCreateDatabase(sessionId, name);
+      await queryClient.invalidateQueries({
+        queryKey: qk.databases(sessionId),
+      });
+    } catch (e) {
+      toastError("Could not create database", asIpcError(e).message);
+    }
+  }
+
+  function openServerMenu(e: React.MouseEvent) {
+    openMenu(e, [
+      {
+        label: "New database…",
+        disabled: session.readOnly,
+        onSelect: () => {
+          setCreateDraft("");
+          setCreating(true);
+          setOpen(true);
+        },
+      },
+    ]);
+  }
+
   return (
-    <MenuContext.Provider value={openMenu}>
-      <div className={styles.tree} role="tree">
-        <div className={styles.serverRow}>
-          <span
-            className={`${styles.caret} ${open ? styles.caretOpen : ""}`}
-            onClick={() => setOpen((o) => !o)}
-            aria-hidden
+    <FilterContext.Provider value={filter}>
+      <ConfirmContext.Provider value={requestConfirm}>
+        <MenuContext.Provider value={openMenu}>
+          <div className={styles.tree} role="tree">
+            <div className={styles.serverRow} onContextMenu={openServerMenu}>
+              <span
+                className={`${styles.caret} ${open ? styles.caretOpen : ""}`}
+                onClick={() => setOpen((o) => !o)}
+                aria-hidden
+              >
+                <CaretIcon />
+              </span>
+              <span className={styles.icon} aria-hidden>
+                <ConnectionIcon />
+              </span>
+              <span
+                className={styles.serverName}
+                title={session.connectionName}
+              >
+                {session.connectionName}
+              </span>
+              <button
+                type="button"
+                className="ghost"
+                title="Disconnect"
+                aria-label={`Disconnect ${session.connectionName}`}
+                onClick={onDisconnect}
+              >
+                <DisconnectIcon />
+              </button>
+            </div>
+            {open && (
+              <>
+                {creating && (
+                  <div
+                    className={styles.row}
+                    style={{ paddingLeft: 1 * 14 + 6 }}
+                  >
+                    <span className={styles.caretSpacer} aria-hidden />
+                    <span className={styles.icon} aria-hidden>
+                      <DatabaseIcon />
+                    </span>
+                    <input
+                      className={styles.renameInput}
+                      autoFocus
+                      value={createDraft}
+                      placeholder="database name"
+                      aria-label="New database name"
+                      onChange={(e) => setCreateDraft(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void commitCreate();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setCreating(false);
+                          setCreateDraft("");
+                        }
+                      }}
+                      onBlur={() => void commitCreate()}
+                    />
+                  </div>
+                )}
+                {isLoading && <Loading depth={1} />}
+                {error && <ErrorRow depth={1} />}
+                {(data ?? []).map((db) => (
+                  <DatabaseNode
+                    key={db.name}
+                    session={session}
+                    database={db}
+                    depth={1}
+                  />
+                ))}
+              </>
+            )}
+          </div>
+          <ContextMenu
+            open={menuOpen}
+            x={menu?.x ?? 0}
+            y={menu?.y ?? 0}
+            items={menu?.items ?? []}
+            onClose={() => setMenuOpen(false)}
+          />
+          <Modal
+            open={confirmOpen}
+            title={confirm?.title ?? ""}
+            tone="danger"
+            onClose={() => setConfirmOpen(false)}
+            footer={
+              <>
+                <button type="button" onClick={() => setConfirmOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={!confirmReady}
+                  onClick={() => {
+                    if (!confirmReady) return;
+                    setConfirmOpen(false);
+                    confirm?.onConfirm();
+                  }}
+                >
+                  {confirm?.confirmLabel ?? "Confirm"}
+                </button>
+              </>
+            }
           >
-            <CaretIcon />
-          </span>
-          <span className={styles.icon} aria-hidden>
-            <ConnectionIcon />
-          </span>
-          <span className={styles.serverName} title={session.connectionName}>
-            {session.connectionName}
-          </span>
-          <button
-            type="button"
-            className="ghost"
-            title="Disconnect"
-            aria-label={`Disconnect ${session.connectionName}`}
-            onClick={onDisconnect}
-          >
-            <DisconnectIcon />
-          </button>
-        </div>
-        {open && (
-          <>
-            {isLoading && <Loading depth={1} />}
-            {error && <ErrorRow depth={1} />}
-            {(data ?? []).map((db) => (
-              <DatabaseNode
-                key={db.name}
-                session={session}
-                database={db}
-                depth={1}
-              />
-            ))}
-          </>
-        )}
-      </div>
-      <ContextMenu
-        open={menuOpen}
-        x={menu?.x ?? 0}
-        y={menu?.y ?? 0}
-        items={menu?.items ?? []}
-        onClose={() => setMenuOpen(false)}
-      />
-    </MenuContext.Provider>
+            <p>{confirm?.message}</p>
+            {confirm?.requireText != null && (
+              <div className={styles.confirmField}>
+                <label htmlFor="confirm-type-to-drop">
+                  Type <strong>{confirm.requireText}</strong> to confirm
+                </label>
+                <input
+                  id="confirm-type-to-drop"
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={confirmInput}
+                  aria-label={`Type ${confirm.requireText} to confirm`}
+                  onChange={(e) => setConfirmInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && confirmReady) {
+                      e.preventDefault();
+                      setConfirmOpen(false);
+                      confirm?.onConfirm();
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </Modal>
+        </MenuContext.Provider>
+      </ConfirmContext.Provider>
+    </FilterContext.Provider>
   );
 }
 

@@ -13,6 +13,9 @@ pub struct DatabaseInfo {
     pub name: String,
     /// System database (e.g. `master`, `tempdb`) — the UI may collapse these.
     pub is_system: bool,
+    /// Availability state, e.g. `"ONLINE"`, `"OFFLINE"`. Drivers without a
+    /// notion of database state report `"ONLINE"`.
+    pub state_desc: String,
 }
 
 /// A schema (namespace) within a database.

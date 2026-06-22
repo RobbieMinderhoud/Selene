@@ -194,6 +194,10 @@ pub fn run() {
             commands::session::session_disconnect,
             commands::session::session_use_database,
             commands::session::session_current_database,
+            commands::session::session_create_database,
+            commands::session::session_drop_database,
+            commands::session::session_rename_database,
+            commands::session::session_set_database_online,
             // Connection health
             commands::health::set_health_check,
             // Introspection

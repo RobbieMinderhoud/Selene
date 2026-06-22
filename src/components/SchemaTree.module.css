@@ -79,6 +79,55 @@
   text-overflow: ellipsis;
 }
 
+/* Inline database rename field — replaces the label in place. */
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+
+.renameInput:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Type-to-confirm field in the shared destructive-action dialog. */
+.confirmField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.confirmField label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.confirmField input {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.confirmField input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .badge {
   margin-left: auto;
   color: var(--text-faint);
