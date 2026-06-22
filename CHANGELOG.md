@@ -8,6 +8,19 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.2.2] - 2026-06-22
+
+### Fixed
+
+- **Cmd/Ctrl+Enter on the SQL guard prompt now reliably runs the query.** A
+  second press while the confirm prompt was open could start a parallel run and
+  re-open the prompt instead of confirming; the run is now guarded against
+  re-entry.
+- **The editor no longer scroll-jumps to the top when you click into it after
+  running a query.** Focus is returned to the editor after a Run-button click and
+  after the guard prompt closes, so clicking back in (e.g. double-clicking to
+  select) no longer scrolls you away.
+
 ## [1.2.1] - 2026-06-22
 
 ### Changed

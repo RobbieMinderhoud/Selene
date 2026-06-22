@@ -107,6 +107,27 @@ describe("GuardModal", () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it("confirm: Cmd/Ctrl+Enter also activates Run anyway", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <GuardModal
+        state={{
+          kind: "confirm",
+          verdict: { level: "confirm", reasons: ["DELETE without WHERE"] },
+        }}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+    // The user's run shortcut is Cmd/Ctrl+Enter; pressing it on the guard should
+    // confirm, not be ignored.
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it("block: Enter dismisses (OK)", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();

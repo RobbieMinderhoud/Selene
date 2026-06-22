@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EditorView } from "@codemirror/view";
 
 import { sessionCurrentDatabase, sessionUseDatabase } from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
@@ -105,6 +106,17 @@ export function EditorPane({ tabId }: EditorPaneProps) {
   const [guard, setGuard] = useState<GuardPrompt>(null);
   // Holds the resolver for an in-flight confirm() so the modal can settle it.
   const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
+  // Mirrors `guard !== null` for synchronous reads inside handleRun (avoids a
+  // stale closure without adding `guard` to its deps, which would churn the
+  // editor's `onRun` and force a CodeMirror reconfigure).
+  const guardOpenRef = useRef(false);
+  guardOpenRef.current = guard !== null;
+  // True while a run (incl. its guard confirm round-trip) is in flight.
+  const runInFlight = useRef(false);
+  // The live editor view, so we can return focus to it after a Run/guard action.
+  // `view.focus()` restores scroll position; a raw DOM focus scroll-jumps the
+  // editor on the macOS WebView (WebKit ignores `preventScroll`).
+  const editorViewRef = useRef<EditorView | null>(null);
 
   // Editor/results split (percentage of height for the editor).
   const [editorPct, setEditorPct] = useState(42);
@@ -132,42 +144,58 @@ export function EditorPane({ tabId }: EditorPaneProps) {
   const handleRun = useCallback(
     async (sqlText: string) => {
       if (!sqlText.trim()) return;
+      // Re-entrancy guard. Cmd+Enter bypasses the disabled Run button, so without
+      // this a second press while the guard modal is open would re-fire the run:
+      // start a parallel guard check, overwrite confirmResolver, and re-open the
+      // modal (the "Cmd+Enter on the guard sometimes doesn't work" symptom).
+      if (runInFlight.current || guardOpenRef.current) return;
+      runInFlight.current = true;
+      try {
+        let sessionId = tab?.sessionId ?? null;
+        // The session was auto-closed (dropped link) but the tab remembers its
+        // connection: reconnect — which restores the last database — then run.
+        if (!sessionId && tab?.connectionId) {
+          await connectTabToConnection(tabId, tab.connectionId);
+          sessionId = getTab(tabId)?.sessionId ?? null;
+        }
+        if (!sessionId) return;
 
-      let sessionId = tab?.sessionId ?? null;
-      // The session was auto-closed (dropped link) but the tab remembers its
-      // connection: reconnect — which restores the last database — then run.
-      if (!sessionId && tab?.connectionId) {
-        await connectTabToConnection(tabId, tab.connectionId);
-        sessionId = getTab(tabId)?.sessionId ?? null;
+        // Read read-only from the (possibly just-reconnected) live session.
+        const live = useSessionStore.getState().sessions[sessionId];
+        await runQuery({
+          tabId,
+          sessionId,
+          sql: sqlText,
+          readOnly: live?.readOnly ?? session?.readOnly ?? false,
+          onBlock: (verdict) => setGuard({ kind: "block", verdict }),
+          onConfirm: (verdict) =>
+            new Promise<boolean>((resolve) => {
+              confirmResolver.current = resolve;
+              setGuard({ kind: "confirm", verdict });
+            }),
+        });
+      } finally {
+        runInFlight.current = false;
       }
-      if (!sessionId) return;
-
-      // Read read-only from the (possibly just-reconnected) live session.
-      const live = useSessionStore.getState().sessions[sessionId];
-      await runQuery({
-        tabId,
-        sessionId,
-        sql: sqlText,
-        readOnly: live?.readOnly ?? session?.readOnly ?? false,
-        onBlock: (verdict) => setGuard({ kind: "block", verdict }),
-        onConfirm: (verdict) =>
-          new Promise<boolean>((resolve) => {
-            confirmResolver.current = resolve;
-            setGuard({ kind: "confirm", verdict });
-          }),
-      });
     },
     [tab?.sessionId, tab?.connectionId, tabId, session?.readOnly],
   );
 
   const runWhole = useCallback(() => {
     if (tab) void handleRun(tab.sql);
+    // Keep focus in the editor after a button-click run; otherwise the button
+    // holds focus and the next click into the (unfocused) editor scroll-jumps
+    // on the macOS WebView. A pending guard modal re-focuses its card afterward.
+    editorViewRef.current?.focus();
   }, [tab, handleRun]);
 
   function resolveConfirm(ok: boolean) {
     setGuard(null);
     confirmResolver.current?.(ok);
     confirmResolver.current = null;
+    // Return focus to the editor (scroll-safe) instead of leaving it on the
+    // dismissed modal / document body.
+    editorViewRef.current?.focus();
   }
 
   function onSplitterDown(e: React.MouseEvent) {
@@ -297,6 +325,7 @@ export function EditorPane({ tabId }: EditorPaneProps) {
               tabId={tabId}
               onRun={handleRun}
               schemaSource={schemaSource}
+              viewRef={editorViewRef}
             />
           </div>
         </section>

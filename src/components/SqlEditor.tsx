@@ -10,7 +10,7 @@
  * stays free of guard/stream logic.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { sql, MSSQL } from "@codemirror/lang-sql";
 import type { CompletionSource } from "@codemirror/autocomplete";
@@ -37,11 +37,30 @@ interface SqlEditorProps {
    * reconfigure on every character.
    */
   schemaSource?: CompletionSource;
+  /**
+   * Populated with the live `EditorView` on creation so the parent can drive it
+   * (e.g. return focus after a Run/guard action — see EditorPane). Focusing via
+   * `view.focus()` is scroll-safe; a raw DOM `.focus()` scroll-jumps on the
+   * macOS WebView (WebKit ignores `preventScroll`).
+   */
+  viewRef?: React.MutableRefObject<EditorView | null>;
 }
 
-export function SqlEditor({ tabId, onRun, schemaSource }: SqlEditorProps) {
+export function SqlEditor({
+  tabId,
+  onRun,
+  schemaSource,
+  viewRef,
+}: SqlEditorProps) {
   const value = useEditorStore((s) => selectSql(s, tabId));
   const setSql = useEditorStore((s) => s.setSql);
+  // Stable across renders (setSql is a Zustand action, tabId is per-mount) so the
+  // editor doesn't reconfigure on every render — @uiw/react-codemirror re-dispatches
+  // a full `reconfigure` whenever the `onChange` identity changes.
+  const handleChange = useCallback(
+    (next: string) => setSql(tabId, next),
+    [setSql, tabId],
+  );
   const themeMode = useThemeStore((s) => s.mode);
   const editor = useSettingsStore((s) => s.editor);
 
@@ -174,8 +193,11 @@ export function SqlEditor({ tabId, onRun, schemaSource }: SqlEditorProps) {
         height="100%"
         theme={themeMode === "dark" ? githubDark : githubLight}
         extensions={allExtensions}
-        onChange={(next) => setSql(tabId, next)}
-        onCreateEditor={(v) => setView(v)}
+        onChange={handleChange}
+        onCreateEditor={(v) => {
+          setView(v);
+          if (viewRef) viewRef.current = v;
+        }}
         basicSetup={{
           lineNumbers: editor.lineNumbers,
           foldGutter: false,

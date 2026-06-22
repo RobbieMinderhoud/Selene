@@ -46,7 +46,7 @@ export function Modal({
   // unstable `onClose` (a fresh closure each render of the parent) can't re-fire
   // this and steal focus from an input mid-typing.
   useEffect(() => {
-    if (open) cardRef.current?.focus();
+    if (open) cardRef.current?.focus({ preventScroll: true });
   }, [open]);
 
   if (!mounted) return null;
