@@ -17,8 +17,9 @@ mod import;
 mod introspect;
 mod stream;
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use socket2::{SockRef, TcpKeepalive};
 use tiberius::{Client, SqlBrowser};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
@@ -61,13 +62,56 @@ impl MssqlDriver {
     }
 }
 
+/// Upper bound on how long the whole connect (TCP dial + TLS handshake + login)
+/// may take before we give up. Without it a dead/firewalled host can hang for
+/// the OS default SYN timeout (often 75s+); a desktop user wants a prompt error.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// TCP keepalive: start probing after 15s idle, then every 5s. On a link that
+/// dropped *silently* (no FIN/RST — Wi-Fi off, VPN down, cable pulled) a blocked
+/// socket read would otherwise wait for the OS default keepalive idle (~2h).
+/// With these settings the kernel tears the socket down within tens of seconds,
+/// so any in-flight `execute`/`ping`/introspection call fails instead of hanging
+/// forever and pinning the session mutex. This is the backstop; the app-level
+/// heartbeat (Tauri layer) is the primary, faster detector for idle sessions.
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(15);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Enable TCP keepalive on `tcp`. Best-effort: a failure to set the option is
+/// not fatal (the connection still works; we just lose the fast dead-link
+/// detection), so we ignore the error rather than refusing to connect.
+fn apply_keepalive(tcp: &TcpStream) {
+    let keepalive = TcpKeepalive::new()
+        .with_time(KEEPALIVE_IDLE)
+        .with_interval(KEEPALIVE_INTERVAL);
+    let _ = SockRef::from(tcp).set_tcp_keepalive(&keepalive);
+}
+
 /// Open a TDS connection from a spec + secret.
 ///
 /// For a named instance we resolve the real port through the SQL Browser
 /// (`SqlBrowser::connect_named`, available via the `sql-browser-tokio` feature
 /// and working cross-platform); otherwise we dial the configured host/port
 /// directly. tiberius then performs the TLS handshake and login.
+///
+/// The whole sequence is bounded by [`CONNECT_TIMEOUT`] and the socket gets TCP
+/// keepalive ([`apply_keepalive`]) so a later silent link drop is detected
+/// promptly rather than hanging a read indefinitely.
 async fn open_client(spec: &ConnectionSpec, secret: &Secret) -> Result<TiberiusClient, CoreError> {
+    tokio::time::timeout(CONNECT_TIMEOUT, open_client_inner(spec, secret))
+        .await
+        .map_err(|_| {
+            CoreError::Connection(format!(
+                "timed out after {}s connecting to the server",
+                CONNECT_TIMEOUT.as_secs()
+            ))
+        })?
+}
+
+async fn open_client_inner(
+    spec: &ConnectionSpec,
+    secret: &Secret,
+) -> Result<TiberiusClient, CoreError> {
     let config = build_config(spec, secret)?;
 
     // Establish the raw TCP stream. `connect_named` performs SQL Browser
@@ -85,6 +129,7 @@ async fn open_client(spec: &ConnectionSpec, secret: &Secret) -> Result<TiberiusC
             .map_err(|e| CoreError::Connection(format!("set_nodelay: {e}")))?;
         tcp
     };
+    apply_keepalive(&tcp);
 
     // tiberius drives the futures-io traits, so wrap Tokio's stream with the
     // compat shim before handing it over.

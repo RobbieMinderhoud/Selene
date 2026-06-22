@@ -247,6 +247,17 @@ export interface SessionInfo {
   capabilities: DriverCapabilities;
 }
 
+/**
+ * Payload of the global `"session:lost"` Tauri event, emitted by the backend
+ * health-check heartbeat when a live session's connection has dropped and the
+ * session was auto-closed. The frontend uses it to remove the session and offer
+ * a reconnect for the originating connection.
+ */
+export interface SessionLostEvent {
+  sessionId: string;
+  connectionId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Introspection types (snake_case fields)
 // ---------------------------------------------------------------------------

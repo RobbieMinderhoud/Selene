@@ -18,6 +18,7 @@ mssql = [
     "dep:tokio-util",
     "dep:futures-util",
     "dep:uuid",
+    "dep:socket2",
 ]
 
 [dependencies]
@@ -69,6 +70,11 @@ tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+# Set TCP keepalive on the connection socket so a *silently* dropped link
+# (Wi-Fi/VPN gone, no RST) surfaces as a socket error within seconds instead of
+# blocking a read forever — see `open_client`. socket2 is the cross-platform
+# way to reach the keepalive socket options behind tokio's `TcpStream`.
+socket2 = { version = "0.5", optional = true }
 
 [dev-dependencies]
 # Hermetic temp files for the export golden tests. `tokio` (with the `macros`

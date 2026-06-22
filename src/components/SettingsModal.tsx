@@ -17,6 +17,7 @@ import {
   connectionsImport,
   fileRead,
   fileWrite,
+  setHealthCheck,
 } from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
 import { toastError, toastSuccess } from "../state/toastStore";
@@ -152,6 +153,7 @@ async function exportBackup(): Promise<void> {
         editor: s.editor,
         results: s.results,
         query: s.query,
+        connection: s.connection,
         export: s.export,
         import: s.import,
       };
@@ -403,6 +405,35 @@ export function SettingsModal({
               help="When you open a SQL file, connect it to the saved connection whose name appears in the file name (e.g. pr02db02b_shared_01.sql → pr02db02b)."
               value={s.query.autoConnectFromFile}
               onChange={(v) => setSection("query", { autoConnectFromFile: v })}
+            />
+          </section>
+
+          {/* Connection health */}
+          <section className={styles.section}>
+            <h3 className={styles.sectionLabel}>Connection health</h3>
+            <SettingToggle
+              label="Auto-close dropped connections"
+              help="Periodically check that each open connection is still reachable and automatically close any that stopped responding (e.g. after Wi-Fi/VPN loss), instead of leaving the app waiting."
+              value={s.connection.healthCheck}
+              onChange={(v) => {
+                setSection("connection", { healthCheck: v });
+                void setHealthCheck(v, s.connection.healthCheckIntervalSecs);
+              }}
+            />
+            <SettingSelect<number>
+              label="Check interval"
+              help="How often to ping open connections."
+              value={s.connection.healthCheckIntervalSecs}
+              options={[
+                [3, "Every 3 seconds"],
+                [5, "Every 5 seconds"],
+                [10, "Every 10 seconds"],
+                [30, "Every 30 seconds"],
+              ]}
+              onChange={(v) => {
+                setSection("connection", { healthCheckIntervalSecs: v });
+                void setHealthCheck(s.connection.healthCheck, v);
+              }}
             />
           </section>
         </div>

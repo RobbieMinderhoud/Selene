@@ -10,6 +10,8 @@ yet set up.)
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-22
+
 ### Added
 
 - Automatic detection and close-out of dropped connections. A background health
@@ -19,6 +21,10 @@ yet set up.)
   never complete. Each affected editor tab shows a "Disconnected" status with a
   one-click **Reconnect**, and a toast reports the loss. The check (on/off and
   interval) is configurable in Settings → General → Connection health.
+- Running a query on a tab whose connection has dropped now reconnects
+  automatically and restores the database the tab was last using (e.g. after a
+  `USE`), then runs — instead of leaving the Run button disabled. The manual
+  Reconnect also restores the last database.
 
 ### Changed
 

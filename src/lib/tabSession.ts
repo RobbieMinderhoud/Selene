@@ -12,7 +12,11 @@
  * trigger another keychain prompt.
  */
 
-import { connectionsList, sessionDisconnect } from "../ipc/commands";
+import {
+  connectionsList,
+  sessionDisconnect,
+  sessionUseDatabase,
+} from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
 import type { ConnectionSpec } from "../ipc/types";
 import { getTab, useEditorStore } from "../state/editorStore";
@@ -24,6 +28,29 @@ import { matchConnectionForFile } from "./connectionMatch";
 import { basename } from "./path";
 import { queryClient } from "./queryClient";
 import { qk } from "./queries";
+
+/**
+ * After (re)connecting a tab, restore the database it was last using so running
+ * a query after a dropped link lands back in the same context rather than the
+ * connection's default. Best-effort: a database that no longer exists (or any
+ * USE failure) just leaves the new session on its default.
+ */
+async function restoreLastDatabase(
+  tabId: string,
+  sessionId: string,
+): Promise<void> {
+  const lastDb = getTab(tabId)?.lastDatabase;
+  if (!lastDb) return;
+  try {
+    await sessionUseDatabase(sessionId, lastDb);
+    // The tab may have been closed/rebound while the USE was in flight.
+    if (getTab(tabId)?.sessionId === sessionId) {
+      useEditorStore.getState().setTabDatabase(tabId, lastDb);
+    }
+  } catch {
+    // Stay on the connection's default database.
+  }
+}
 
 /** Disconnect and forget a tab-private session. Never touches browse sessions. */
 function disposePrivateSession(sessionId: string | null | undefined): void {
@@ -196,7 +223,15 @@ export async function bindTabConnection(
   disposePrivateSession(prev);
   useEditorStore.getState().setTabSession(tabId, null);
 
-  if (!connectionId) return;
+  if (!connectionId) {
+    // Explicit detach — forget the intended connection too.
+    useEditorStore.getState().setTabConnection(tabId, null);
+    return;
+  }
+
+  // Record the intended connection up front so the toolbar reflects it while we
+  // connect, and so it survives a later session drop (for the reconnect button).
+  useEditorStore.getState().setTabConnection(tabId, connectionId);
 
   const { name, readOnly } = connectionMeta(connectionId);
   try {
@@ -215,6 +250,10 @@ export async function bindTabConnection(
     // The tab may have been closed or rebound while we awaited the connect.
     if (getTab(tabId) && !getTab(tabId)?.sessionId) {
       useEditorStore.getState().setTabSession(tabId, info.sessionId);
+      // Land back in the database the tab last used (e.g. after a USE), so a
+      // reconnect to the same connection doesn't silently switch context to the
+      // server default. No-op on a first connect / connection switch.
+      await restoreLastDatabase(tabId, info.sessionId);
     } else {
       disposePrivateSession(info.sessionId); // orphan from a racing rebind
     }

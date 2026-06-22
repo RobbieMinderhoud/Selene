@@ -48,6 +48,16 @@ export interface Settings {
     /** Auto-connect an opened SQL file to the connection named in its file name. */
     autoConnectFromFile: boolean;
   };
+  connection: {
+    /**
+     * Periodically ping live sessions and auto-close any whose link has dropped
+     * (so a lost connection can't leave the app spinning). Pushed to the backend
+     * heartbeat via `set_health_check`.
+     */
+    healthCheck: boolean;
+    /** Seconds between health-check pings. */
+    healthCheckIntervalSecs: number;
+  };
   export: {
     delimiter: CsvDelimiter;
     quoteChar: CsvQuoteChar;
@@ -89,6 +99,10 @@ const DEFAULTS: Settings = {
     confirmOnReadWrite: false,
     defaultConnectionReadOnly: false,
     autoConnectFromFile: true,
+  },
+  connection: {
+    healthCheck: true,
+    healthCheckIntervalSecs: 5,
   },
   export: {
     delimiter: ";",
@@ -178,6 +192,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           results: merged.results,
           search: merged.search,
           query: merged.query,
+          connection: merged.connection,
           export: merged.export,
           import: merged.import,
         }),
@@ -202,6 +217,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           results: merged.results,
           search: merged.search,
           query: merged.query,
+          connection: merged.connection,
           export: merged.export,
           import: merged.import,
         }),

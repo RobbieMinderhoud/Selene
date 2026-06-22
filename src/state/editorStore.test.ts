@@ -261,6 +261,44 @@ describe("editorStore result reducers", () => {
   });
 });
 
+describe("editorStore connection + database memory", () => {
+  const s = () => useEditorStore.getState();
+  const tab = (id: string) => s().tabs.find((t) => t.id === id)!;
+
+  it("remembers the last real database and keeps it when the session clears", () => {
+    const id = freshTab();
+    s().setTabConnection(id, "c1");
+    s().setTabSession(id, "sess-1");
+    s().setTabDatabase(id, "AppDb");
+    expect(tab(id).currentDatabase).toBe("AppDb");
+    expect(tab(id).lastDatabase).toBe("AppDb");
+
+    // Session dropped: current clears, the memory for reconnect survives.
+    s().setTabSession(id, null);
+    expect(tab(id).currentDatabase).toBeNull();
+    expect(tab(id).lastDatabase).toBe("AppDb");
+
+    // A null database update (e.g. effect on detach) must not erase the memory.
+    s().setTabDatabase(id, null);
+    expect(tab(id).lastDatabase).toBe("AppDb");
+  });
+
+  it("forgets the remembered database when bound to a different connection", () => {
+    const id = freshTab();
+    s().setTabConnection(id, "c1");
+    s().setTabDatabase(id, "AppDb");
+    expect(tab(id).lastDatabase).toBe("AppDb");
+
+    // Reconnect to the SAME connection keeps it.
+    s().setTabConnection(id, "c1");
+    expect(tab(id).lastDatabase).toBe("AppDb");
+
+    // Switching to a DIFFERENT connection drops it (other server).
+    s().setTabConnection(id, "c2");
+    expect(tab(id).lastDatabase).toBeNull();
+  });
+});
+
 describe("editorStore file-backed tabs", () => {
   const s = () => useEditorStore.getState();
   const tab = (id: string) => s().tabs.find((t) => t.id === id)!;

@@ -24,7 +24,7 @@ import { LogoMark } from "./components/LogoMark";
 
 import { listen } from "@tauri-apps/api/event";
 
-import { fsWatch } from "./ipc/commands";
+import { fsWatch, setHealthCheck } from "./ipc/commands";
 import {
   newQuery,
   openFileDialog,
@@ -35,7 +35,9 @@ import {
   saveTabIfDirty,
 } from "./lib/fileActions";
 import { startFileSync } from "./lib/fsSync";
+import { startSessionLostListener } from "./lib/sessionLost";
 import { useEditorStore } from "./state/editorStore";
+import { useSettingsStore } from "./state/settingsStore";
 import {
   readWorkspace,
   startWorkspacePersistence,
@@ -113,9 +115,16 @@ export default function App() {
 
     let disposeSync: (() => void) | undefined;
     let disposePersist: (() => void) | undefined;
+    let disposeSessionLost: (() => void) | undefined;
 
     void (async () => {
       const manifest = readWorkspace();
+
+      // Push the saved health-check config to the backend heartbeat, and start
+      // reacting to the sessions it auto-closes when a connection drops.
+      const health = useSettingsStore.getState().connection;
+      void setHealthCheck(health.healthCheck, health.healthCheckIntervalSecs);
+      disposeSessionLost = await startSessionLostListener();
 
       // Restore the workspace folders + start watching them. Open *files* are
       // deliberately not reopened — the editor starts clean each session and the
@@ -133,6 +142,7 @@ export default function App() {
     return () => {
       disposeSync?.();
       disposePersist?.();
+      disposeSessionLost?.();
     };
   }, []);
 

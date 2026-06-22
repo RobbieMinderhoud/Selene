@@ -27,6 +27,7 @@
 pub mod connection;
 pub mod export;
 pub mod fs;
+pub mod health;
 pub mod import;
 pub mod introspect;
 pub mod query;

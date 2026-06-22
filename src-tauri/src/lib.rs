@@ -170,6 +170,14 @@ pub fn run() {
             let app_state = AppState::new(config_dir)
                 .map_err(|e| format!("could not initialise app state: {e}"))?;
             app.manage(app_state);
+
+            // Start the connection health-check heartbeat. It runs for the life
+            // of the app, pinging live sessions and auto-closing any whose link
+            // has dropped (emitting `session:lost` so the UI can react). Honours
+            // the live `HealthConfig`, which the frontend tunes via
+            // `set_health_check`.
+            commands::health::spawn_heartbeat(app.handle().clone());
+
             tracing::info!(version = selene_core::VERSION, "Selene backend initialised");
             Ok(())
         })
@@ -186,6 +194,8 @@ pub fn run() {
             commands::session::session_disconnect,
             commands::session::session_use_database,
             commands::session::session_current_database,
+            // Connection health
+            commands::health::set_health_check,
             // Introspection
             commands::introspect::databases_list,
             commands::introspect::schemas_list,

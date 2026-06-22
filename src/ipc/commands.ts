@@ -120,6 +120,20 @@ export function sessionCurrentDatabase(sessionId: string): Promise<string> {
   return invoke("session_current_database", { sessionId });
 }
 
+// --- Connection health ----------------------------------------------------
+
+/**
+ * `set_health_check` -> tune the backend heartbeat that pings live sessions and
+ * auto-closes dropped ones. Call on startup and whenever the user changes the
+ * health settings. `intervalSecs` is clamped to a floor server-side.
+ */
+export function setHealthCheck(
+  enabled: boolean,
+  intervalSecs: number,
+): Promise<void> {
+  return invoke("set_health_check", { enabled, intervalSecs });
+}
+
 // --- Introspection --------------------------------------------------------
 
 /** `databases_list` -> databases on the session's server. */

@@ -76,8 +76,23 @@ export interface EditorTab {
   sql: string;
   /** Session this tab runs against; `null` until a connection is chosen. */
   sessionId: string | null;
+  /**
+   * The connection this tab is bound to, independent of the live session. Unlike
+   * `sessionId` it survives a dropped/auto-closed session, so the toolbar can
+   * show "disconnected from X" and offer a reconnect. Cleared only when the user
+   * explicitly detaches the tab ("No connection").
+   */
+  connectionId: string | null;
   /** Current database for this tab's session; updated after queries and USE statements. */
   currentDatabase: string | null;
+  /**
+   * The last database this tab was actually in (mirrors `currentDatabase` but is
+   * NOT cleared when the session drops). On a reconnect to the same connection
+   * it is restored with a `USE`, so running a query after a dropped link lands
+   * back in the same database instead of the connection's default. Reset when
+   * the tab is bound to a different connection.
+   */
+  lastDatabase: string | null;
   /** Canonical absolute path once saved/opened; `null` for an unsaved scratch tab. */
   filePath: string | null;
   /**
@@ -133,6 +148,8 @@ interface EditorState {
   setActiveTab: (id: string) => void;
   setSql: (id: string, sql: string) => void;
   setTabSession: (id: string, sessionId: string | null) => void;
+  /** Bind/clear the tab's intended connection (kept across session drops). */
+  setTabConnection: (id: string, connectionId: string | null) => void;
   setTabDatabase: (id: string, db: string | null) => void;
   renameTab: (id: string, title: string) => void;
   /** Insert text at (replacing) — used by the schema tree's double-click. */
@@ -197,7 +214,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         title: `Query ${n}`,
         sql,
         sessionId,
+        connectionId: null,
         currentDatabase: null,
+        lastDatabase: null,
         filePath: null,
         savedSql: null,
         fileMissing: false,
@@ -225,7 +244,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       title: basename(filePath),
       sql: content,
       sessionId,
+      connectionId: null,
       currentDatabase: null,
+      lastDatabase: null,
       filePath,
       savedSql: content,
       fileMissing: false,
@@ -300,10 +321,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ),
     })),
 
+  setTabConnection: (id, connectionId) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              connectionId,
+              // Binding to a *different* connection invalidates the remembered
+              // database (it belonged to the old server). Reconnecting to the
+              // same connection keeps it so it can be restored.
+              ...(connectionId !== t.connectionId
+                ? { lastDatabase: null }
+                : {}),
+            }
+          : t,
+      ),
+    })),
+
   setTabDatabase: (id, db) =>
     set((state) => ({
       tabs: state.tabs.map((t) =>
-        t.id === id ? { ...t, currentDatabase: db } : t,
+        t.id === id
+          ? {
+              ...t,
+              currentDatabase: db,
+              // Remember the last real database so a reconnect can restore it;
+              // a null (session cleared) must not erase that memory.
+              ...(db ? { lastDatabase: db } : {}),
+            }
+          : t,
       ),
     })),
 

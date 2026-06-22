@@ -23,6 +23,55 @@
   font-size: var(--fs-sm);
 }
 
+/* Connection status pill next to the session picker. */
+.connStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-faint);
+  transition: background var(--dur-2) var(--ease-out);
+}
+
+.connStatus[data-state="connected"] .statusDot {
+  background: var(--success);
+}
+
+.connStatus[data-state="disconnected"] {
+  color: var(--warning);
+}
+
+.connStatus[data-state="disconnected"] .statusDot {
+  background: var(--warning);
+  /* A gentle pulse to draw the eye to a dropped link (honours reduced-motion
+     via the global guard). */
+  animation: statusPulse var(--dur-4) var(--ease-in-out) infinite;
+}
+
+@keyframes statusPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.reconnectBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: var(--sp-1);
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-xs);
+}
+
 .runGroup {
   display: flex;
   gap: var(--sp-2);

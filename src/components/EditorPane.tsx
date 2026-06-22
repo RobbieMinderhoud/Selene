@@ -15,13 +15,13 @@ import { cancelQuery, runQuery } from "../lib/runQuery";
 import { useConnections, useSchemaTables } from "../lib/queries";
 import { makeSchemaCompletionSource } from "../lib/sqlCompletion";
 import { connectTabToConnection } from "../lib/tabSession";
-import { useEditorStore } from "../state/editorStore";
+import { getTab, useEditorStore } from "../state/editorStore";
 import { selectSession, useSessionStore } from "../state/sessionStore";
 import { useSettingsStore } from "../state/settingsStore";
 import { toastError } from "../state/toastStore";
 import { DatabaseSelect } from "./DatabaseSelect";
 import { GuardModal } from "./GuardModal";
-import { CancelIcon, RunIcon } from "./icons";
+import { CancelIcon, ReconnectIcon, RunIcon } from "./icons";
 import { ResultsPanel } from "./ResultsPanel";
 import { SqlEditor } from "./SqlEditor";
 import styles from "./EditorPane.module.css";
@@ -111,7 +111,9 @@ export function EditorPane({ tabId }: EditorPaneProps) {
   const splitRef = useRef<HTMLDivElement>(null);
 
   const isRunning = status === "running";
-  const canRun = !!tab?.sessionId && !isRunning;
+  // Runnable when live, or when the tab remembers a connection it can reconnect
+  // to (a dropped session auto-reconnects on Run, restoring the last database).
+  const canRun = (!!tab?.sessionId || !!tab?.connectionId) && !isRunning;
 
   const handleUseDatabase = useCallback(
     async (db: string) => {
@@ -129,12 +131,24 @@ export function EditorPane({ tabId }: EditorPaneProps) {
 
   const handleRun = useCallback(
     async (sqlText: string) => {
-      if (!tab?.sessionId) return;
+      if (!sqlText.trim()) return;
+
+      let sessionId = tab?.sessionId ?? null;
+      // The session was auto-closed (dropped link) but the tab remembers its
+      // connection: reconnect — which restores the last database — then run.
+      if (!sessionId && tab?.connectionId) {
+        await connectTabToConnection(tabId, tab.connectionId);
+        sessionId = getTab(tabId)?.sessionId ?? null;
+      }
+      if (!sessionId) return;
+
+      // Read read-only from the (possibly just-reconnected) live session.
+      const live = useSessionStore.getState().sessions[sessionId];
       await runQuery({
         tabId,
-        sessionId: tab.sessionId,
+        sessionId,
         sql: sqlText,
-        readOnly: session?.readOnly ?? false,
+        readOnly: live?.readOnly ?? session?.readOnly ?? false,
         onBlock: (verdict) => setGuard({ kind: "block", verdict }),
         onConfirm: (verdict) =>
           new Promise<boolean>((resolve) => {
@@ -143,7 +157,7 @@ export function EditorPane({ tabId }: EditorPaneProps) {
           }),
       });
     },
-    [tab?.sessionId, tabId, session?.readOnly],
+    [tab?.sessionId, tab?.connectionId, tabId, session?.readOnly],
   );
 
   const runWhole = useCallback(() => {
@@ -194,7 +208,7 @@ export function EditorPane({ tabId }: EditorPaneProps) {
             <select
               id={`session-${tabId}`}
               className={styles.sessionSelect}
-              value={session?.connectionId ?? ""}
+              value={tab.connectionId ?? session?.connectionId ?? ""}
               onChange={(e) =>
                 void connectTabToConnection(tabId, e.target.value || null)
               }
@@ -206,6 +220,41 @@ export function EditorPane({ tabId }: EditorPaneProps) {
                 </option>
               ))}
             </select>
+
+            {/* Connection status. Green when the session is live; amber with a
+                Reconnect action when the link dropped (the tab keeps its
+                connectionId after an auto-close). */}
+            {tab.connectionId &&
+              (tab.sessionId ? (
+                <span
+                  className={styles.connStatus}
+                  data-state="connected"
+                  title="Connected"
+                >
+                  <span className={styles.statusDot} aria-hidden />
+                  Connected
+                </span>
+              ) : (
+                <span
+                  className={styles.connStatus}
+                  data-state="disconnected"
+                  title="Connection lost"
+                >
+                  <span className={styles.statusDot} aria-hidden />
+                  Disconnected
+                  <button
+                    type="button"
+                    className={styles.reconnectBtn}
+                    onClick={() =>
+                      void connectTabToConnection(tabId, tab.connectionId)
+                    }
+                    title="Reconnect"
+                  >
+                    <ReconnectIcon />
+                    Reconnect
+                  </button>
+                </span>
+              ))}
 
             {session && tab.sessionId && (
               <DatabaseSelect

@@ -28,6 +28,7 @@ import {
   Trash2,
   X,
   Unplug,
+  RotateCw,
   ChevronRight,
   ChevronDown,
   Play,
@@ -85,6 +86,7 @@ export const EditIcon = icon(Pencil);
 export const DeleteIcon = icon(Trash2);
 export const CloseIcon = icon(X);
 export const DisconnectIcon = icon(Unplug);
+export const ReconnectIcon = icon(RotateCw); // re-open a dropped connection
 export const CaretIcon = icon(ChevronRight); // rotates 90° on expand (CSS)
 export const DropdownIcon = icon(ChevronDown);
 export const RunIcon = icon(Play);

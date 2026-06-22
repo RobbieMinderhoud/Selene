@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -162,6 +163,29 @@ pub struct SessionEntry {
     pub conn: Box<dyn Connection>,
 }
 
+/// Runtime configuration for the connection health-check heartbeat.
+///
+/// The heartbeat task (see `commands::health`) reads this each round, so the
+/// frontend can enable/disable it or retune the interval live via
+/// `set_health_check` without a restart. Defaults match the frontend's settings
+/// defaults (enabled, every 5s).
+#[derive(Debug, Clone, Copy)]
+pub struct HealthConfig {
+    /// Whether the heartbeat actively pings live sessions.
+    pub enabled: bool,
+    /// Delay between heartbeat rounds.
+    pub interval: Duration,
+}
+
+impl Default for HealthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: Duration::from_secs(5),
+        }
+    }
+}
+
 /// The whole application's shared state.
 ///
 /// `AppState` is `Send + Sync` (every field is), as required by Tauri's
@@ -199,6 +223,9 @@ pub struct AppState {
     /// Created lazily on the first `fs_watch` and dropped when no roots remain;
     /// a plain `Mutex` suffices (locked only briefly to add/remove a root).
     pub watcher: Mutex<Option<crate::commands::fs::FsWatcher>>,
+    /// Live tuning for the connection health-check heartbeat. A plain `Mutex`:
+    /// read once per heartbeat round, written only by `set_health_check`.
+    pub health: Mutex<HealthConfig>,
 }
 
 impl AppState {
@@ -212,6 +239,7 @@ impl AppState {
             sessions: AsyncMutex::new(HashMap::new()),
             running: Mutex::new(HashMap::new()),
             watcher: Mutex::new(None),
+            health: Mutex::new(HealthConfig::default()),
         })
     }
 
