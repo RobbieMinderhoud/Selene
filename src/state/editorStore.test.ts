@@ -261,6 +261,40 @@ describe("editorStore result reducers", () => {
   });
 });
 
+describe("editorStore tab reordering", () => {
+  const s = () => useEditorStore.getState();
+  const order = () => s().tabs.map((t) => t.id);
+
+  it("moveTab places the dragged tab where the target sits", () => {
+    const a = freshTab();
+    const b = freshTab();
+    const c = freshTab();
+    expect(order()).toEqual([a, b, c]);
+
+    // Drag the first tab onto the last.
+    s().moveTab(a, c);
+    expect(order()).toEqual([b, c, a]);
+
+    // Drag it back to the front.
+    s().moveTab(a, b);
+    expect(order()).toEqual([a, b, c]);
+  });
+
+  it("moveTab is a no-op for same id or unknown ids, and leaves the active tab", () => {
+    const a = freshTab();
+    const b = freshTab();
+    s().setActiveTab(b);
+
+    s().moveTab(a, a); // onto itself
+    s().moveTab(a, "tab-does-not-exist");
+    s().moveTab("tab-does-not-exist", b);
+
+    expect(order()).toEqual([a, b]);
+    // Reordering never changes which tab is focused.
+    expect(s().activeTabId).toBe(b);
+  });
+});
+
 describe("editorStore connection + database memory", () => {
   const s = () => useEditorStore.getState();
   const tab = (id: string) => s().tabs.find((t) => t.id === id)!;

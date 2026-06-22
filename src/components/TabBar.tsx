@@ -1,6 +1,6 @@
 /** Editor tab strip: select, close, and add tabs (+ unsaved/missing markers). */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { requestTabClose, saveTab } from "../lib/fileActions";
 import { bindTabConnection, closeTabAndSession } from "../lib/tabSession";
@@ -14,6 +14,7 @@ export function TabBar() {
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
+  const moveTab = useEditorStore((s) => s.moveTab);
   const addTab = useEditorStore((s) => s.addTab);
   const pendingCloseTabId = useEditorStore((s) => s.pendingCloseTabId);
   const setPendingCloseTabId = useEditorStore((s) => s.setPendingCloseTabId);
@@ -27,6 +28,39 @@ export function TabBar() {
     const lastBrowse = sessionOrder[sessionOrder.length - 1];
     const connectionId = lastBrowse ? sessions[lastBrowse]?.connectionId : null;
     if (connectionId) void bindTabConnection(id, connectionId);
+  }
+
+  // Drag-to-reorder. The id of the tab being dragged is held in a ref (no
+  // re-render needed); `overId` is the tab currently hovered as a drop target
+  // and drives the insertion-line indicator.
+  const dragId = useRef<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+
+  function handleDragStart(e: React.DragEvent, id: string) {
+    dragId.current = id;
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function handleDragEnter(e: React.DragEvent, id: string) {
+    if (dragId.current === null) return;
+    e.preventDefault();
+    if (id !== dragId.current) setOverId(id);
+  }
+  function handleDragOver(e: React.DragEvent) {
+    if (dragId.current === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }
+  function handleDrop(e: React.DragEvent, toId: string) {
+    e.preventDefault();
+    const fromId = dragId.current;
+    dragId.current = null;
+    setOverId(null);
+    if (fromId === null || fromId === toId) return;
+    moveTab(fromId, toId);
+  }
+  function handleDragEnd() {
+    dragId.current = null;
+    setOverId(null);
   }
 
   // Pending close-confirmation for a dirty file-backed tab (don't lose edits).
@@ -46,12 +80,20 @@ export function TabBar() {
             aria-selected={tab.id === activeTabId}
             className={`${styles.tab} ${
               tab.id === activeTabId ? styles.active : ""
-            } ${tab.fileMissing ? styles.missing : ""}`}
+            } ${tab.fileMissing ? styles.missing : ""} ${
+              dragId.current === tab.id ? styles.dragging : ""
+            } ${overId === tab.id ? styles.over : ""}`}
+            draggable
             onClick={() => setActiveTab(tab.id)}
             onAuxClick={(e) => {
               // Middle-click closes.
               if (e.button === 1) requestTabClose(tab.id);
             }}
+            onDragStart={(e) => handleDragStart(e, tab.id)}
+            onDragEnter={(e) => handleDragEnter(e, tab.id)}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, tab.id)}
+            onDragEnd={handleDragEnd}
           >
             <span
               className={styles.title}

@@ -8,6 +8,14 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.2.3] - 2026-06-22
+
+### Added
+
+- **Reorder open editor tabs by dragging them.** Drag a query tab along the tab
+  strip to drop it into a new position; an accent insertion line shows where it
+  will land.
+
 ## [1.2.2] - 2026-06-22
 
 ### Fixed

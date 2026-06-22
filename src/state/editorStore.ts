@@ -146,6 +146,8 @@ interface EditorState {
   closeTab: (id: string) => void;
   setPendingCloseTabId: (id: string | null) => void;
   setActiveTab: (id: string) => void;
+  /** Reorder: move the tab `fromId` to sit where `toId` currently is (drag-and-drop). */
+  moveTab: (fromId: string, toId: string) => void;
   setSql: (id: string, sql: string) => void;
   setTabSession: (id: string, sessionId: string | null) => void;
   /** Bind/clear the tab's intended connection (kept across session drops). */
@@ -306,6 +308,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  moveTab: (fromId, toId) =>
+    set((state) => {
+      const fromIdx = state.tabs.findIndex((t) => t.id === fromId);
+      const toIdx = state.tabs.findIndex((t) => t.id === toId);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return state;
+      const tabs = [...state.tabs];
+      const [moved] = tabs.splice(fromIdx, 1);
+      tabs.splice(toIdx, 0, moved);
+      return { tabs };
+    }),
 
   setPendingCloseTabId: (id) => set({ pendingCloseTabId: id }),
 

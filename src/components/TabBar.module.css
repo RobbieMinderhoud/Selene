@@ -31,8 +31,30 @@
   transition:
     background var(--dur-1) var(--ease-out),
     border-color var(--dur-1) var(--ease-out),
-    color var(--dur-1) var(--ease-out);
+    color var(--dur-1) var(--ease-out),
+    opacity var(--dur-1) var(--ease-out);
   animation: tabIn var(--dur-2) var(--ease-out);
+}
+
+/* The chip being dragged fades back while its drag-image follows the cursor. */
+.dragging {
+  opacity: 0.4;
+}
+
+/*
+ * Drop target: a vertical accent line on the leading edge marks where the
+ * dragged chip will be inserted. A pseudo-element (not box-shadow) so it stacks
+ * above the active chip's own shadow when dropping onto the active tab.
+ */
+.over::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 1;
 }
 
 .tab:hover {
