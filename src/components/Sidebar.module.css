@@ -294,6 +294,7 @@
 }
 
 .dot {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -307,7 +308,25 @@
 .dotOn {
   background: var(--success);
   box-shadow: 0 0 6px var(--success);
+}
+
+/* The "breathing" glow on a connected dot. It animates `opacity` on a
+ * composited pseudo-element rather than the dot's `box-shadow` directly: a
+ * box-shadow keyframe repaints (blur recompute) every frame on the main thread,
+ * and because this runs forever on every live connection it kept the WebView
+ * renderer + GPU process busy at the display refresh rate even while idle (the
+ * app's energy hog). The box-shadow here is painted once into the pseudo
+ * element's layer; only its `opacity` animates, which the compositor handles on
+ * the GPU thread, letting the renderer go idle. (Matches the repo rule: animate
+ * only `transform`/`opacity`.) */
+.dotOn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 9px var(--success);
   animation: breathe 2.4s var(--ease-in-out) infinite;
+  pointer-events: none;
 }
 
 .dotConnecting {
@@ -318,10 +337,10 @@
 @keyframes breathe {
   0%,
   100% {
-    box-shadow: 0 0 3px var(--success);
+    opacity: 0;
   }
   50% {
-    box-shadow: 0 0 9px var(--success);
+    opacity: 1;
   }
 }
 

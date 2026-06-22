@@ -10,6 +10,31 @@ yet set up.)
 
 ## [Unreleased]
 
+### Added
+
+- Automatic detection and close-out of dropped connections. A background health
+  check periodically pings every open connection; one that stops responding
+  (e.g. after Wi-Fi/VPN loss or the machine sleeping) is closed automatically
+  instead of leaving the app spinning and consuming memory on requests that can
+  never complete. Each affected editor tab shows a "Disconnected" status with a
+  one-click **Reconnect**, and a toast reports the loss. The check (on/off and
+  interval) is configurable in Settings → General → Connection health.
+
+### Changed
+
+- Connections now use a bounded connect timeout and TCP keepalive, so an
+  unreachable or silently dropped server fails promptly rather than hanging.
+
+## [1.0.1] - 2026-06-22
+
+### Fixed
+
+- High CPU, GPU, and battery usage while a connection was open. The pulsing
+  "connected" indicator in the connection list animated a paint-heavy property,
+  which forced the whole window to repaint on every frame and kept the app busy
+  even when idle. It now animates cheaply, so an idle connected window no longer
+  drains power.
+
 ## [1.0.0] - 2026-06-19
 
 First public release. The `selene-core` data layer, the Tauri IPC layer, and the
