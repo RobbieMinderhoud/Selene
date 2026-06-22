@@ -35,7 +35,7 @@ use crate::introspect::{ColumnInfo, DatabaseInfo, SchemaInfo, TableInfo};
 use crate::secret::Secret;
 
 use self::config::build_config;
-use self::error::{map_connect_err, map_tiberius_err};
+use self::error::{map_connect_err, map_ddl_lock_err, map_tiberius_err};
 use self::stream::{run_exec_counting, run_query, TiberiusClient};
 
 /// The MSSQL backend.
@@ -347,20 +347,52 @@ impl Connection for MssqlConnection {
         Ok(())
     }
 
-    async fn rename_database(&mut self, from: &str, to: &str) -> Result<(), CoreError> {
+    async fn rename_database(
+        &mut self,
+        from: &str,
+        to: &str,
+        force: bool,
+    ) -> Result<(), CoreError> {
+        let from_q = introspect::quote_ident(from);
+        let to_q = introspect::quote_ident(to);
         // Run from `master` so we never alter the database in our own context.
-        let sql = format!(
-            "USE master; ALTER DATABASE {} MODIFY NAME = {}",
-            introspect::quote_ident(from),
-            introspect::quote_ident(to),
-        );
+        let sql = if force {
+            // Force path: drop the other sessions (ROLLBACK IMMEDIATE), rename,
+            // then restore MULTI_USER. The TRY/CATCH guarantees we don't leave
+            // the source stuck in SINGLE_USER if the rename itself fails (e.g.
+            // the target name already exists): it restores MULTI_USER and
+            // re-raises. After a successful MODIFY NAME the db is `to`, so the
+            // trailing MULTI_USER targets the new name; on failure it is still
+            // `from`. (A racing session could grab the single-user slot between
+            // statements, but they run back-to-back on this `master` connection,
+            // so the window is negligible for a desktop client.)
+            format!(
+                "USE master; \
+                 ALTER DATABASE {from_q} SET SINGLE_USER WITH ROLLBACK IMMEDIATE; \
+                 BEGIN TRY \
+                 ALTER DATABASE {from_q} MODIFY NAME = {to_q}; \
+                 END TRY \
+                 BEGIN CATCH \
+                 ALTER DATABASE {from_q} SET MULTI_USER; \
+                 THROW; \
+                 END CATCH; \
+                 ALTER DATABASE {to_q} SET MULTI_USER;"
+            )
+        } else {
+            // Clean path: a short lock timeout turns an indefinite wait on an
+            // in-use database into a prompt error (1222), which `map_ddl_lock_err`
+            // maps to `DatabaseInUse` so the UI can offer the forced retry.
+            format!(
+                "USE master; SET LOCK_TIMEOUT 5000; ALTER DATABASE {from_q} MODIFY NAME = {to_q};"
+            )
+        };
         self.client
             .simple_query(&sql)
             .await
-            .map_err(map_tiberius_err)?
+            .map_err(map_ddl_lock_err)?
             .into_results()
             .await
-            .map_err(map_tiberius_err)?;
+            .map_err(map_ddl_lock_err)?;
         Ok(())
     }
 

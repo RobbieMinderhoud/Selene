@@ -414,6 +414,10 @@ function DatabaseNode({
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(database.name);
+  // While a management op runs, the row shows a spinner + this status label
+  // (e.g. "renaming…"). The label is what carries meaning under reduced motion,
+  // where the spinner stops animating.
+  const [busy, setBusy] = useState<string | null>(null);
   const sessionId = session.info.sessionId;
   const hasSchemas = session.info.capabilities.schemas;
   const openMenu = useContext(MenuContext);
@@ -431,19 +435,38 @@ function DatabaseNode({
     return queryClient.invalidateQueries({ queryKey: qk.databases(sessionId) });
   }
 
-  async function commitRename() {
+  function commitRename() {
     const next = draft.trim();
     setRenaming(false);
     if (!next || next === database.name) return;
+    void runRename(next, false);
+  }
+
+  async function runRename(next: string, force: boolean) {
+    setBusy("renaming…");
     try {
-      await sessionRenameDatabase(sessionId, database.name, next);
+      await sessionRenameDatabase(sessionId, database.name, next, force);
       await refresh();
     } catch (e) {
-      toastError("Could not rename database", asIpcError(e).message);
+      const err = asIpcError(e);
+      // Clean rename couldn't get exclusive access — offer to force it.
+      if (!force && err.kind === "database_in_use") {
+        requestConfirm({
+          title: "Database in use",
+          confirmLabel: "Force rename",
+          message: `"${database.name}" is in use by active connections. Force the rename and disconnect them? Any in-progress transactions on those connections are rolled back.`,
+          onConfirm: () => void runRename(next, true),
+        });
+        return;
+      }
+      toastError("Could not rename database", err.message);
+    } finally {
+      setBusy(null);
     }
   }
 
   async function setOnline(online: boolean) {
+    setBusy(online ? "bringing online…" : "taking offline…");
     try {
       await sessionSetDatabaseOnline(sessionId, database.name, online);
       await refresh();
@@ -454,15 +477,20 @@ function DatabaseNode({
           : "Could not take database offline",
         asIpcError(e).message,
       );
+    } finally {
+      setBusy(null);
     }
   }
 
   async function drop() {
+    setBusy("dropping…");
     try {
       await sessionDropDatabase(sessionId, database.name);
       await refresh();
     } catch (e) {
       toastError("Could not drop database", asIpcError(e).message);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -511,7 +539,9 @@ function DatabaseNode({
 
   return (
     <>
-      {renaming ? (
+      {busy ? (
+        <BusyRow depth={depth} label={database.name} status={busy} />
+      ) : renaming ? (
         <div className={styles.row} style={{ paddingLeft: depth * 14 + 6 }}>
           <span className={styles.caretSpacer} aria-hidden />
           <span className={styles.icon} aria-hidden>
@@ -528,7 +558,7 @@ function DatabaseNode({
               e.stopPropagation();
               if (e.key === "Enter") {
                 e.preventDefault();
-                void commitRename();
+                commitRename();
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 setRenaming(false);
@@ -629,12 +659,15 @@ export function SchemaTree({
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [createDraft, setCreateDraft] = useState("");
+  // Name of the database currently being created (drives the busy row).
+  const [createBusy, setCreateBusy] = useState<string | null>(null);
 
   async function commitCreate() {
     const name = createDraft.trim();
     setCreating(false);
     setCreateDraft("");
     if (!name) return;
+    setCreateBusy(name);
     try {
       await sessionCreateDatabase(sessionId, name);
       await queryClient.invalidateQueries({
@@ -642,6 +675,8 @@ export function SchemaTree({
       });
     } catch (e) {
       toastError("Could not create database", asIpcError(e).message);
+    } finally {
+      setCreateBusy(null);
     }
   }
 
@@ -725,6 +760,9 @@ export function SchemaTree({
                     />
                   </div>
                 )}
+                {createBusy && (
+                  <BusyRow depth={1} label={createBusy} status="creating…" />
+                )}
                 {isLoading && <Loading depth={1} />}
                 {error && <ErrorRow depth={1} />}
                 {(data ?? []).map((db) => (
@@ -806,6 +844,40 @@ function Loading({ depth }: { depth: number }) {
     <div className={styles.meta} style={{ paddingLeft: depth * 14 + 22 }}>
       <span className="spinner" aria-hidden />
       Loading…
+    </div>
+  );
+}
+
+/**
+ * A database row mid-operation: a spinner in place of the caret, the name, and
+ * a muted status verb (e.g. "renaming…"). The status text is the accessible
+ * carrier of meaning — under reduced motion the spinner ring stops spinning,
+ * so the label must stand alone. Interactions are suppressed while busy.
+ */
+function BusyRow({
+  depth,
+  label,
+  status,
+}: {
+  depth: number;
+  label: string;
+  status: string;
+}) {
+  return (
+    <div
+      className={styles.row}
+      style={{ paddingLeft: depth * 14 + 6, color: "var(--text-faint)" }}
+      role="treeitem"
+      aria-busy="true"
+    >
+      <span className={styles.caret} aria-hidden>
+        <span className="spinner" />
+      </span>
+      <span className={styles.icon} aria-hidden>
+        <DatabaseIcon />
+      </span>
+      <span className={styles.label}>{label}</span>
+      <span className={styles.badge}>{status}</span>
     </div>
   );
 }

@@ -182,12 +182,17 @@ pub async fn session_drop_database(
 ///
 /// Refused on a read-only connection: this is destructive DDL and does not pass
 /// through the SQL guard. The driver bracket-quotes both names (safe as input).
+///
+/// With `force == false` the rename fails fast (kind `"database_in_use"`) when
+/// the database is in use, so the frontend can prompt before retrying with
+/// `force == true`, which disconnects the active sessions to complete it.
 #[tauri::command]
 pub async fn session_rename_database(
     state: State<'_, AppState>,
     session_id: String,
     from: String,
     to: String,
+    force: bool,
 ) -> Result<(), IpcError> {
     let mut sessions = state.sessions.lock().await;
     let session = sessions
@@ -199,8 +204,8 @@ pub async fn session_rename_database(
             "connection is read-only; cannot rename a database",
         ));
     }
-    session.conn.rename_database(&from, &to).await?;
-    tracing::info!(%session_id, %from, %to, "database renamed");
+    session.conn.rename_database(&from, &to, force).await?;
+    tracing::info!(%session_id, %from, %to, force, "database renamed");
     Ok(())
 }
 

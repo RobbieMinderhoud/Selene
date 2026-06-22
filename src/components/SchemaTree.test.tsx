@@ -8,7 +8,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,12 +18,14 @@ vi.mock("../ipc/commands", () => ({
   schemasList: vi.fn(),
   tablesList: vi.fn(),
   columnsList: vi.fn(),
+  sessionRenameDatabase: vi.fn(),
 }));
 
 import {
   columnsList,
   databasesList,
   schemasList,
+  sessionRenameDatabase,
   tablesList,
 } from "../ipc/commands";
 import type { SessionInfo } from "../ipc/types";
@@ -34,6 +36,7 @@ const mockDatabases = vi.mocked(databasesList);
 const mockSchemas = vi.mocked(schemasList);
 const mockTables = vi.mocked(tablesList);
 const mockColumns = vi.mocked(columnsList);
+const mockRename = vi.mocked(sessionRenameDatabase);
 
 const capabilities: SessionInfo["capabilities"] = {
   schemas: true,
@@ -68,6 +71,7 @@ beforeEach(() => {
   mockSchemas.mockReset();
   mockTables.mockReset();
   mockColumns.mockReset();
+  mockRename.mockReset();
 
   mockDatabases.mockResolvedValue([
     { name: "AppDb", is_system: false, state_desc: "ONLINE" },
@@ -167,5 +171,55 @@ describe("SchemaTree lazy loading", () => {
       screen.getByRole("button", { name: /Disconnect Reporting DB/ }),
     );
     expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("rename: on 'database_in_use' it confirms, then retries with force", async () => {
+    const user = userEvent.setup();
+    // Clean attempt is refused (in use); the forced retry succeeds.
+    mockRename
+      .mockRejectedValueOnce({
+        message: "Lock request time out period exceeded.",
+        kind: "database_in_use",
+      })
+      .mockResolvedValueOnce(undefined);
+
+    renderTree(<SchemaTree session={session} onDisconnect={vi.fn()} />);
+
+    // Right-click the AppDb row -> "Rename…".
+    const dbRow = (await screen.findByText("AppDb")).closest(
+      '[role="treeitem"]',
+    ) as HTMLElement;
+    fireEvent.contextMenu(dbRow);
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+
+    // Type a new name and commit.
+    const input = await screen.findByLabelText("Rename database AppDb");
+    await user.clear(input);
+    await user.type(input, "AppDb_v2{Enter}");
+
+    // First call is the clean (non-forced) attempt.
+    await waitFor(() =>
+      expect(mockRename).toHaveBeenCalledWith(
+        "session-1",
+        "AppDb",
+        "AppDb_v2",
+        false,
+      ),
+    );
+
+    // The in-use prompt appears; confirm the forced rename.
+    await user.click(
+      await screen.findByRole("button", { name: "Force rename" }),
+    );
+
+    await waitFor(() =>
+      expect(mockRename).toHaveBeenCalledWith(
+        "session-1",
+        "AppDb",
+        "AppDb_v2",
+        true,
+      ),
+    );
+    expect(mockRename).toHaveBeenCalledTimes(2);
   });
 });

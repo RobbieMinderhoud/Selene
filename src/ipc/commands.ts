@@ -139,13 +139,20 @@ export function sessionDropDatabase(
   return invoke("session_drop_database", { sessionId, database });
 }
 
-/** `session_rename_database` -> rename a database. Refused on read-only. */
+/**
+ * `session_rename_database` -> rename a database. Refused on read-only.
+ *
+ * With `force = false` it rejects with `kind === "database_in_use"` when the
+ * database has active connections (instead of hanging); retry with
+ * `force = true` to disconnect those sessions and complete the rename.
+ */
 export function sessionRenameDatabase(
   sessionId: string,
   from: string,
   to: string,
+  force: boolean,
 ): Promise<void> {
-  return invoke("session_rename_database", { sessionId, from, to });
+  return invoke("session_rename_database", { sessionId, from, to, force });
 }
 
 /**

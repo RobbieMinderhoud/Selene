@@ -47,6 +47,26 @@ pub(crate) fn map_tiberius_err(err: TiberiusError) -> CoreError {
     }
 }
 
+/// Like [`map_tiberius_err`], but recognizes the "couldn't get exclusive
+/// access" errors raised by database-management DDL (rename) and maps them to
+/// [`CoreError::DatabaseInUse`] so the UI can offer a forced retry.
+///
+/// - **1222** — "Lock request time out period exceeded." Our `SET LOCK_TIMEOUT`
+///   fired because another session holds the database (turns an otherwise
+///   indefinite wait into a prompt error).
+/// - **5030** — "The database could not be exclusively locked to perform the
+///   operation." Raised directly by `ALTER DATABASE` when sessions are connected.
+///
+/// Both messages are server-generated and secret-free.
+pub(crate) fn map_ddl_lock_err(err: TiberiusError) -> CoreError {
+    if let TiberiusError::Server(ref token) = err {
+        if matches!(token.code(), 1222 | 5030) {
+            return CoreError::DatabaseInUse(token.message().to_string());
+        }
+    }
+    map_tiberius_err(err)
+}
+
 /// Like [`map_tiberius_err`], but used while establishing a connection: bare
 /// I/O and TLS failures are reported as connection problems so the UI can drive
 /// the right reconnect affordance. A `Server` token at login time (e.g. "Login

@@ -90,6 +90,9 @@ impl From<CoreError> for IpcError {
             CoreError::Secret(_) => "secret",
             CoreError::Config(_) => "config",
             CoreError::Unsupported(_) => "unsupported",
+            // Recoverable on the frontend: it can offer a forced retry that
+            // disconnects the active sessions.
+            CoreError::DatabaseInUse(_) => "database_in_use",
             CoreError::Cancelled => "cancelled",
             CoreError::Protocol(_) => "protocol",
             CoreError::Io(_) => "io",

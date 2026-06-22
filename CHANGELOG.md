@@ -8,6 +8,23 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.2.1] - 2026-06-22
+
+### Changed
+
+- **Renaming a database no longer hangs when the database is in use.** The rename
+  now fails fast (a short lock timeout) instead of blocking indefinitely, and when
+  the database has active connections Selene asks whether to **force the rename** —
+  which disconnects those sessions (rolling back any in-flight transactions) and
+  completes the rename.
+
+### Added
+
+- The schema tree now shows an **inline status** on a database row while a
+  management operation runs — a spinner plus a label such as "renaming…", "taking
+  offline…", "bringing online…", "dropping…", or "creating…" — so these
+  operations are no longer silent.
+
 ## [1.2.0] - 2026-06-22
 
 ### Added

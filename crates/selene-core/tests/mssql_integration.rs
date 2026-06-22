@@ -54,6 +54,9 @@ const SA_PASSWORD: &str = MssqlServer::DEFAULT_SA_PASSWORD;
 /// dropping it stops and removes the container (and so kills the connection).
 struct Fixture {
     conn: Box<dyn Connection>,
+    /// The mapped host port — lets a test open a second, independent connection
+    /// to the same server (e.g. to hold a database "in use").
+    port: u16,
     // Kept alive to keep the container running; never read directly.
     _container: ContainerAsync<MssqlServer>,
 }
@@ -102,8 +105,20 @@ async fn start_mssql() -> Fixture {
 
     Fixture {
         conn,
+        port,
         _container: container,
     }
+}
+
+/// Open an additional `selene-core` connection (as `sa`) to an already-running
+/// container, given its mapped port. Used to simulate a second client that
+/// holds a database "in use".
+async fn connect_mssql(port: u16) -> Box<dyn Connection> {
+    let driver = driver_for(DriverId::Mssql).expect("mssql driver compiled in");
+    driver
+        .connect(&spec_for(port), &Secret::new(SA_PASSWORD))
+        .await
+        .expect("open a second connection to SQL Server")
 }
 
 /// Build the `ConnectionSpec` for `test_connection` (no live `connect`), reusing
@@ -862,8 +877,9 @@ async fn rename_and_offline_online_round_trip() {
     )
     .await;
 
-    // Rename, then confirm the new name is listed and the old one is gone.
-    conn.rename_database("selene_mgmt", "selene_mgmt2")
+    // Rename (clean path: no other sessions), then confirm the new name is
+    // listed and the old one is gone.
+    conn.rename_database("selene_mgmt", "selene_mgmt2", false)
         .await
         .expect("rename_database");
     let dbs = conn.list_databases().await.expect("list after rename");
@@ -898,6 +914,74 @@ async fn rename_and_offline_online_round_trip() {
         .find(|d| d.name == "selene_mgmt2")
         .expect("online database listed");
     assert_eq!(online.state_desc, "ONLINE");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
+async fn rename_in_use_reports_then_force_succeeds() {
+    let mut fixture = start_mssql().await;
+    let port = fixture.port;
+
+    exec_ok(
+        fixture.conn.as_mut(),
+        "IF DB_ID('selene_force') IS NULL CREATE DATABASE selene_force",
+    )
+    .await;
+
+    // A second, independent connection that sits *inside* the target database,
+    // so the clean rename can't acquire exclusive access.
+    let mut holder = connect_mssql(port).await;
+    exec_ok(holder.as_mut(), "USE selene_force").await;
+
+    // Clean rename (force = false) must fail fast with DatabaseInUse rather than
+    // blocking on the lock (the LOCK_TIMEOUT / exclusive-lock error).
+    let err = fixture
+        .conn
+        .rename_database("selene_force", "selene_force2", false)
+        .await
+        .expect_err("clean rename must fail while the database is in use");
+    assert!(
+        matches!(err, CoreError::DatabaseInUse(_)),
+        "expected DatabaseInUse, got {err:?}",
+    );
+    // The name must be unchanged after the failed clean attempt.
+    let dbs = fixture
+        .conn
+        .list_databases()
+        .await
+        .expect("list after block");
+    assert!(
+        dbs.iter().any(|d| d.name == "selene_force"),
+        "database keeps its original name after a blocked rename",
+    );
+
+    // Force rename (force = true) disconnects the holder (ROLLBACK IMMEDIATE)
+    // and completes, leaving the database back in MULTI_USER under the new name.
+    fixture
+        .conn
+        .rename_database("selene_force", "selene_force2", true)
+        .await
+        .expect("force rename should succeed");
+    let dbs = fixture
+        .conn
+        .list_databases()
+        .await
+        .expect("list after force rename");
+    let renamed = dbs
+        .iter()
+        .find(|d| d.name == "selene_force2")
+        .expect("force-renamed database should be listed");
+    assert_eq!(
+        renamed.state_desc, "ONLINE",
+        "MULTI_USER restored: the database is ONLINE, not stuck single-user",
+    );
+    assert!(
+        !dbs.iter().any(|d| d.name == "selene_force"),
+        "old name should be gone after the force rename",
+    );
+
+    // The holder's session was rolled back by the force rename; drop it.
+    drop(holder);
 }
 
 #[tokio::test]

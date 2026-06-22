@@ -45,6 +45,13 @@ pub enum CoreError {
     #[error("operation not supported: {0}")]
     Unsupported(String),
 
+    /// A database-management operation (rename, set state) could not acquire
+    /// exclusive access because the database is in use by other connections.
+    /// Recoverable: the caller may retry in a "force" mode that disconnects
+    /// those sessions. The string is the (secret-free) server message.
+    #[error("database is in use by other connections: {0}")]
+    DatabaseInUse(String),
+
     /// The operation was cancelled by the caller.
     #[error("operation was cancelled")]
     Cancelled,

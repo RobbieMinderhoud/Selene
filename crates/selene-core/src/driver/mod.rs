@@ -225,7 +225,18 @@ pub trait Connection: Send {
 
     /// Rename a database from `from` to `to`. Drivers must bracket/quote both
     /// identifiers (the names come from user input).
-    async fn rename_database(&mut self, _from: &str, _to: &str) -> Result<(), CoreError> {
+    ///
+    /// With `force == false` the rename must **fail fast** rather than block
+    /// indefinitely when the database is in use, returning
+    /// [`CoreError::DatabaseInUse`] so the caller can offer a forced retry.
+    /// With `force == true` the driver forcibly disconnects other sessions to
+    /// complete the rename (rolling back their in-flight transactions).
+    async fn rename_database(
+        &mut self,
+        _from: &str,
+        _to: &str,
+        _force: bool,
+    ) -> Result<(), CoreError> {
         Err(CoreError::Unsupported(
             "rename_database is not supported by this driver".into(),
         ))
