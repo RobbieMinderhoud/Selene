@@ -1,0 +1,59 @@
+name: Build
+
+# Build installable bundles for Windows and macOS.
+# - workflow_dispatch: build on demand from the Actions tab.
+# - push of a v* tag: a release tag also produces both artifacts.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest # WebView2 Evergreen runtime is preinstalled
+          - os: macos-latest # Apple Silicon -> aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.os }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Runs beforeBuildCommand (pnpm build = tsc && vite build), then bundles
+      # for the host OS. Output lands under src-tauri/target/release/bundle/.
+      - name: Build app
+        run: pnpm tauri build
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: selene-${{ matrix.os }}
+          path: src-tauri/target/release/bundle/**/*.{exe,msi,dmg}
+          if-no-files-found: error
