@@ -8,6 +8,31 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.0] - 2026-06-25
+
+### Added
+
+- **Run on multiple targets.** A new main-area view (open it from the
+  Connections panel header) runs one SQL batch across many databases on many
+  saved servers. Pick the servers, then choose the databases per server either
+  by a filter query — with a **Preview** that lists exactly which databases
+  match — or by hand from a list. Then:
+  - **Generate script** — produce a copy-pasteable `USE [db] … RAISERROR … PRINT`
+    script per server, opened in new editor tabs.
+  - **Execute** — run the batch on every selected database, with live per-target
+    success/failure progress and a **Stop** button. Each database shows its
+    rows-affected count, and any whose DML changed **0 rows** is highlighted.
+    Filter the progress list by outcome (OK / 0-affected / Failed) to isolate
+    just the problems.
+  - **Fetch results** — run a SELECT on every database and aggregate the rows
+    (each prefixed with `_server` / `_database`) into the results grid, then
+    **Save CSV**.
+
+  Servers run in parallel (configurable), databases sequentially per server. The
+  SQL guard and each connection's read-only flag are enforced. New **Settings →
+  Multi-target** options: the default database-filter query, max parallel
+  servers, and the combined-CSV delimiter / BOM.
+
 ## [1.2.3] - 2026-06-22
 
 ### Added

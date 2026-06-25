@@ -70,8 +70,17 @@ export interface ResultState {
   rev: number;
 }
 
+/** A tab is either a SQL editor or the "run on multiple targets" view. */
+export type TabKind = "sql" | "multiTarget";
+
 export interface EditorTab {
   id: string;
+  /**
+   * What this tab renders. `sql` (the default) is a CodeMirror editor + results
+   * pane; `multiTarget` is the dedicated multi-server run view. File/session/SQL
+   * fields below are only meaningful for `sql` tabs.
+   */
+  kind: TabKind;
   title: string;
   sql: string;
   /** Session this tab runs against; `null` until a connection is chosen. */
@@ -143,6 +152,8 @@ interface EditorState {
 
   // --- tab lifecycle ---
   addTab: (sessionId?: string | null, sql?: string) => string;
+  /** Open the "run on multiple targets" view as a new main-area tab. */
+  addMultiTargetTab: () => string;
   closeTab: (id: string) => void;
   setPendingCloseTabId: (id: string | null) => void;
   setActiveTab: (id: string) => void;
@@ -213,6 +224,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const n = state.tabs.length + 1;
       const tab: EditorTab = {
         id,
+        kind: "sql",
         title: `Query ${n}`,
         sql,
         sessionId,
@@ -232,6 +244,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return id;
   },
 
+  addMultiTargetTab: () => {
+    const id = nextTabId();
+    set((state) => {
+      const tab: EditorTab = {
+        id,
+        kind: "multiTarget",
+        title: "Multi-target",
+        sql: "",
+        sessionId: null,
+        connectionId: null,
+        currentDatabase: null,
+        lastDatabase: null,
+        filePath: null,
+        savedSql: null,
+        fileMissing: false,
+      };
+      return {
+        tabs: [...state.tabs, tab],
+        activeTabId: id,
+        // The aggregated results grid (results mode) drives this slot.
+        results: { ...state.results, [id]: emptyResult() },
+      };
+    });
+    return id;
+  },
+
   openFileTab: (filePath, content, sessionId = null) => {
     // Already open? Focus it without touching the buffer (don't clobber unsaved
     // edits, and stay idempotent under StrictMode's double-invoked effects).
@@ -243,6 +281,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const id = nextTabId();
     const tab: EditorTab = {
       id,
+      kind: "sql",
       title: basename(filePath),
       sql: content,
       sessionId,

@@ -43,6 +43,7 @@ import {
   EditIcon,
   FileIcon,
   FolderIcon,
+  MultiTargetIcon,
   PanelGripIcon,
 } from "./icons";
 import { SchemaTree } from "./SchemaTree";
@@ -237,15 +238,26 @@ export function Sidebar() {
     switch (panelId) {
       case "connections":
         return (
-          <button
-            type="button"
-            className="ghost"
-            title="New connection"
-            aria-label="New connection"
-            onClick={openNew}
-          >
-            <AddIcon />
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className="ghost"
+              title="Run on multiple targets"
+              aria-label="Run on multiple targets"
+              onClick={() => useEditorStore.getState().addMultiTargetTab()}
+            >
+              <MultiTargetIcon />
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              title="New connection"
+              aria-label="New connection"
+              onClick={openNew}
+            >
+              <AddIcon />
+            </button>
+          </div>
         );
       case "files":
         return (

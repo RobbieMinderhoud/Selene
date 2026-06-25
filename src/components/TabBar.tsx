@@ -6,7 +6,7 @@ import { requestTabClose, saveTab } from "../lib/fileActions";
 import { bindTabConnection, closeTabAndSession } from "../lib/tabSession";
 import { useEditorStore } from "../state/editorStore";
 import { useSessionStore } from "../state/sessionStore";
-import { AddIcon, CloseIcon } from "./icons";
+import { AddIcon, CloseIcon, MultiTargetIcon } from "./icons";
 import { Modal } from "./Modal";
 import styles from "./TabBar.module.css";
 
@@ -95,6 +95,9 @@ export function TabBar() {
             onDrop={(e) => handleDrop(e, tab.id)}
             onDragEnd={handleDragEnd}
           >
+            {tab.kind === "multiTarget" && (
+              <MultiTargetIcon className={styles.tabIcon} />
+            )}
             <span
               className={styles.title}
               title={

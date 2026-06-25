@@ -1,0 +1,417 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.loading {
+  padding: var(--sp-4);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.head h2 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Push the first control after the title to the right. */
+.head > h2 + * {
+  margin-left: auto;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.error {
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  margin: 0;
+  word-break: break-word;
+}
+
+/* The global `input` rule sets width:100% + border + padding (for text inputs);
+ * neutralize it for the native checkboxes here so they don't stretch across a
+ * cell and shove the label to the right. */
+.pane input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Checklists (servers + databases) ────────────────────────────────────── */
+
+/* A bordered, scrollable vertical list — used for both the server picker and
+ * each server's database picker. One item per line reads far better than a
+ * sprawling multi-column grid. */
+.list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.dbListBox {
+  max-height: 180px;
+  margin-top: var(--sp-1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 5px var(--sp-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row:hover {
+  background: var(--surface-hover);
+}
+
+.rowSelected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.rowName {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Secondary, right-aligned metadata (host:port). */
+.rowMeta {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+}
+
+.headRight {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.linkBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.linkBtn:hover {
+  text-decoration: underline;
+}
+
+.pushRight {
+  margin-left: auto;
+}
+
+.roBadge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 0 3px;
+  line-height: 1.4;
+}
+
+/* ── Segmented toggle ────────────────────────────────────────────────────── */
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.segmented button {
+  border: none;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  padding: 3px 10px;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segOn {
+  background: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+/* ── Editors ─────────────────────────────────────────────────────────────── */
+
+.editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* ── Resolved preview / pick list ────────────────────────────────────────── */
+
+.resolved {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.resolvedServer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  background: var(--surface-2);
+}
+
+.resolvedHead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.resolvedHead strong {
+  color: var(--text);
+}
+
+/* Comma-separated matched names shown under each server in filter-query mode. */
+.dbNames {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+/* ── Progress ────────────────────────────────────────────────────────────── */
+
+.progressBar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width var(--dur-2) var(--ease-out);
+}
+
+.progressFillWarn {
+  background: var(--warning);
+}
+
+/* Status filter pills above the progress list. */
+.filterPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+
+.pill:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pillOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.pillDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.pillDotOk {
+  background: var(--success);
+}
+
+.pillDotWarn {
+  background: var(--warning);
+}
+
+.pillDotError {
+  background: var(--danger);
+}
+
+.placeholderRow {
+  padding: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.targetList {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.targetRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 3px var(--sp-2);
+  font-size: var(--fs-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.targetRow:last-child {
+  border-bottom: none;
+}
+
+.targetIcon {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+}
+
+.targetRow[data-status="ok"] .targetIcon {
+  color: var(--success);
+}
+
+.targetRow[data-status="error"] .targetIcon {
+  color: var(--danger);
+}
+
+/* A database whose executed DML affected 0 rows: ran fine, but changed nothing. */
+.targetRow[data-zero="true"] {
+  background: var(--warning-bg);
+}
+
+.targetRow[data-zero="true"] .targetIcon {
+  color: var(--warning);
+}
+
+.targetName {
+  font-family: var(--font-mono);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.targetError {
+  margin-left: auto;
+  color: var(--danger);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ── Results ─────────────────────────────────────────────────────────────── */
+
+.resultsSection {
+  flex: 1;
+  min-height: 320px;
+}
+
+.grid {
+  height: 360px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}

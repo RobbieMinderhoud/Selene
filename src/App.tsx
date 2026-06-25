@@ -59,9 +59,19 @@ const EditorPane = lazy(() =>
   import("./components/EditorPane").then((m) => ({ default: m.EditorPane })),
 );
 
+// The multi-target view also pulls in CodeMirror + the grid, so it is lazy too.
+const MultiTargetPane = lazy(() =>
+  import("./components/MultiTargetPane").then((m) => ({
+    default: m.MultiTargetPane,
+  })),
+);
+
 export default function App() {
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
+  const activeKind = useEditorStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId)?.kind ?? "sql",
+  );
   const addTab = useEditorStore((s) => s.addTab);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -209,9 +219,13 @@ export default function App() {
           <TabBar />
           {activeTabId ? (
             <Suspense
-              fallback={<div className={styles.emptyWork}>Loading editor…</div>}
+              fallback={<div className={styles.emptyWork}>Loading…</div>}
             >
-              <EditorPane key={activeTabId} tabId={activeTabId} />
+              {activeKind === "multiTarget" ? (
+                <MultiTargetPane key={activeTabId} tabId={activeTabId} />
+              ) : (
+                <EditorPane key={activeTabId} tabId={activeTabId} />
+              )}
             </Suspense>
           ) : (
             <div className={styles.emptyWork}>

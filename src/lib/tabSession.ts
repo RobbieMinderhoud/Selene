@@ -14,12 +14,14 @@
 
 import {
   connectionsList,
+  multiTargetCancel,
   sessionDisconnect,
   sessionUseDatabase,
 } from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
 import type { ConnectionSpec } from "../ipc/types";
 import { getTab, useEditorStore } from "../state/editorStore";
+import { useMultiTargetStore } from "../state/multiTargetStore";
 import { useSessionStore } from "../state/sessionStore";
 import { useSettingsStore } from "../state/settingsStore";
 import { toastError } from "../state/toastStore";
@@ -284,6 +286,15 @@ export function disposeConnectionTabs(connectionId: string): void {
  * counted) so the connection fully closes and leaves the schema tree.
  */
 export function closeTabAndSession(tabId: string): void {
+  // A multi-target tab has no session/file, but may have an in-flight run and a
+  // stored view: cancel the run and drop the view so nothing leaks.
+  if (getTab(tabId)?.kind === "multiTarget") {
+    const view = useMultiTargetStore.getState().views[tabId];
+    if (view?.runId) void multiTargetCancel(view.runId).catch(() => undefined);
+    useMultiTargetStore.getState().remove(tabId);
+    useEditorStore.getState().closeTab(tabId);
+    return;
+  }
   const sessionId = getTab(tabId)?.sessionId;
   const connectionId = sessionId
     ? useSessionStore.getState().sessions[sessionId]?.connectionId

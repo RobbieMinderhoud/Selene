@@ -33,6 +33,9 @@ import {
   ChevronDown,
   Play,
   Square,
+  DatabaseZap,
+  Download,
+  Copy,
   CircleAlert,
   CircleCheck,
   Info,
@@ -92,6 +95,9 @@ export const DropdownIcon = icon(ChevronDown);
 export const RunIcon = icon(Play);
 export const CancelIcon = icon(Square);
 export const CheckIcon = icon(Check);
+export const MultiTargetIcon = icon(DatabaseZap); // run on multiple targets
+export const DownloadIcon = icon(Download);
+export const CopyIcon = icon(Copy);
 export const DragHandleIcon = icon(GripVertical, { size: 12 });
 export const PanelGripIcon = icon(GripHorizontal, { size: 12 });
 

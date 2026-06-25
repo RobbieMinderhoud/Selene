@@ -104,6 +104,13 @@
   font-size: var(--fs-sm);
 }
 
+/* Leading glyph for non-SQL tabs (e.g. the multi-target view). */
+.tabIcon {
+  flex: none;
+  margin-right: 5px;
+  opacity: 0.8;
+}
+
 /* A tab whose backing file vanished on disk: tint the title as a warning. */
 .missing .title {
   color: var(--warning);

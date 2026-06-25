@@ -31,12 +31,13 @@ interface SettingsModalProps {
   onConnectionsChanged?: () => void;
 }
 
-type Tab = "general" | "export" | "import" | "backup";
+type Tab = "general" | "export" | "import" | "multiTarget" | "backup";
 
 const TAB_LABELS: Record<Tab, string> = {
   general: "General",
   export: "Export",
   import: "Import",
+  multiTarget: "Multi-target",
   backup: "Backup",
 };
 
@@ -134,6 +135,35 @@ function SettingSelect<T extends string | number>({
   );
 }
 
+/** Full-width labelled multi-line text field (for the SQL filter default). */
+function SettingTextarea({
+  label,
+  help,
+  value,
+  onChange,
+}: {
+  label: string;
+  help?: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className={styles.fieldCol}>
+      <span className={styles.rowLabel}>
+        {label}
+        {help && <small className={styles.rowHelp}>{help}</small>}
+      </span>
+      <textarea
+        className={styles.textarea}
+        rows={4}
+        spellCheck={false}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
 const BACKUP_FILTER = [{ name: "Selene Backup", extensions: ["json"] }];
 
 async function exportBackup(): Promise<void> {
@@ -156,6 +186,7 @@ async function exportBackup(): Promise<void> {
         connection: s.connection,
         export: s.export,
         import: s.import,
+        multiTarget: s.multiTarget,
       };
     })();
     const backup: BackupFile = { version: 1, connections, settings };
@@ -229,7 +260,9 @@ export function SettingsModal({
     <Modal open={open} title="Settings" onClose={onClose} width={520}>
       {/* ── Tab navigation ────────────────────────────────────────────── */}
       <div className={styles.tabList} role="tablist">
-        {(["general", "export", "import", "backup"] as Tab[]).map((tab) => (
+        {(
+          ["general", "export", "import", "multiTarget", "backup"] as Tab[]
+        ).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -549,6 +582,58 @@ export function SettingsModal({
               help="Roll back the whole import if any value cannot be converted. Turn off to skip bad rows and report how many were skipped."
               value={s.import.atomic}
               onChange={(v) => setSection("import", { atomic: v })}
+            />
+          </section>
+        </div>
+      )}
+
+      {/* ── Multi-target tab ──────────────────────────────────────────── */}
+      {activeTab === "multiTarget" && (
+        <div key="multiTarget" className={styles.tabPanel} role="tabpanel">
+          <section className={styles.section}>
+            <h3 className={styles.sectionLabel}>Run on multiple targets</h3>
+            <SettingTextarea
+              label="Default database filter"
+              help="Pre-fills the database-filter editor for a new multi-target view. Should return one column of database names (e.g. from sys.databases)."
+              value={s.multiTarget.defaultFilterQuery}
+              onChange={(v) =>
+                setSection("multiTarget", { defaultFilterQuery: v })
+              }
+            />
+            <SettingSelect<number>
+              label="Max parallel servers"
+              help="How many servers run concurrently. Databases within a server always run one at a time."
+              value={s.multiTarget.maxParallelServers}
+              options={[
+                [1, "1 (sequential)"],
+                [2, "2"],
+                [4, "4"],
+                [8, "8"],
+              ]}
+              onChange={(v) =>
+                setSection("multiTarget", { maxParallelServers: v })
+              }
+            />
+          </section>
+          <section className={styles.section}>
+            <h3 className={styles.sectionLabel}>Results CSV</h3>
+            <SettingSelect<CsvDelimiter>
+              label="Delimiter"
+              help="Field separator for the combined Save-CSV. Quoting, line ending, and header follow the Export tab."
+              value={s.multiTarget.csvDelimiter}
+              options={[
+                [";", "; (semicolon)"],
+                [",", ", (comma)"],
+                ["\t", "Tab"],
+                ["|", "| (pipe)"],
+              ]}
+              onChange={(v) => setSection("multiTarget", { csvDelimiter: v })}
+            />
+            <SettingToggle
+              label="UTF-8 BOM"
+              help="Prepend a byte-order mark so Excel opens the file without a re-encoding prompt on Windows."
+              value={s.multiTarget.csvBom}
+              onChange={(v) => setSection("multiTarget", { csvBom: v })}
             />
           </section>
         </div>

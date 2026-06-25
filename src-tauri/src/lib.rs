@@ -211,6 +211,11 @@ pub fn run() {
             commands::query::query_cancel,
             // Export
             commands::export::export_result,
+            // Run on multiple targets
+            commands::multi::multi_target_resolve,
+            commands::multi::multi_target_run,
+            commands::multi::multi_target_cancel,
+            commands::multi::export_result_set,
             // Import
             commands::import::import_csv_analyze,
             commands::import::import_csv,

@@ -30,6 +30,7 @@ pub mod fs;
 pub mod health;
 pub mod import;
 pub mod introspect;
+pub mod multi;
 pub mod query;
 pub mod session;
 
@@ -107,4 +108,68 @@ pub enum ImportEvent {
     Done { inserted: u64, skipped: u64 },
     /// The import failed. `message` is sanitized and secret-free.
     Failed { message: String },
+}
+
+/// Streaming events emitted by [`multi::multi_target_run`](crate::commands::multi::multi_target_run)
+/// over a `tauri::ipc::Channel`. Internally tagged (`kind`), `camelCase` fields.
+///
+/// `execute` mode: `Started` → (`Target`, `TargetDone`)* / `ServerError`* →
+/// `Finished`. `results` mode additionally emits a single `Meta` (the unified
+/// columns, with `_server`/`_database` prepended) and `Rows` batches as data
+/// arrives across targets. A run can instead end in `Cancelled`.
+///
+/// Server names, database names, and row counts are safe to put on the wire;
+/// they are identifiers and aggregate metrics, never row/cell data or secrets.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MultiEvent {
+    /// The run was accepted; `total` is the planned (server, database) count.
+    #[serde(rename_all = "camelCase")]
+    Started { run_id: String, total: usize },
+    /// About to run on one (server, database). `index` is the 1-based running
+    /// position; with parallel servers these may not arrive in order.
+    #[serde(rename_all = "camelCase")]
+    Target {
+        connection_id: String,
+        server: String,
+        database: String,
+        index: usize,
+        total: usize,
+    },
+    /// The unified result columns (results mode, emitted once): `_server`,
+    /// `_database`, then the first target's columns.
+    Meta { columns: Vec<Column> },
+    /// A batch of aggregated rows (results mode), each already prefixed with the
+    /// `_server` and `_database` cells.
+    Rows { rows: Vec<Vec<CellValue>> },
+    /// One (server, database) finished. `rows` is the rows *returned* (results
+    /// mode) or the rows *affected* (execute mode, when a DML statement reported
+    /// a count; `null` for DDL/SELECT with no row-count). `error` is a sanitized
+    /// message on failure.
+    #[serde(rename_all = "camelCase")]
+    TargetDone {
+        connection_id: String,
+        server: String,
+        database: String,
+        index: usize,
+        rows: Option<u64>,
+        error: Option<String>,
+    },
+    /// A whole server was skipped (no stored password, connect failure, or the
+    /// guard blocked it). Its databases are counted as failed.
+    #[serde(rename_all = "camelCase")]
+    ServerError {
+        connection_id: String,
+        server: String,
+        error: String,
+    },
+    /// The run completed. Counts are over databases, not servers.
+    #[serde(rename_all = "camelCase")]
+    Finished {
+        succeeded: usize,
+        failed: usize,
+        rows_total: u64,
+    },
+    /// The run was cancelled cooperatively.
+    Cancelled,
 }

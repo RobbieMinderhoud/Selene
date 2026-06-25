@@ -10,7 +10,7 @@
 
 import { Channel } from "@tauri-apps/api/core";
 
-import type { ExportEvent, ImportEvent, QueryEvent } from "./types";
+import type { ExportEvent, ImportEvent, MultiEvent, QueryEvent } from "./types";
 
 /** Create a `Channel<QueryEvent>` wired to `onEvent`. */
 export function createQueryChannel(
@@ -35,6 +35,15 @@ export function createImportChannel(
   onEvent: (event: ImportEvent) => void,
 ): Channel<ImportEvent> {
   const channel = new Channel<ImportEvent>();
+  channel.onmessage = onEvent;
+  return channel;
+}
+
+/** Create a `Channel<MultiEvent>` wired to `onEvent` (multi-target run). */
+export function createMultiChannel(
+  onEvent: (event: MultiEvent) => void,
+): Channel<MultiEvent> {
+  const channel = new Channel<MultiEvent>();
   channel.onmessage = onEvent;
   return channel;
 }

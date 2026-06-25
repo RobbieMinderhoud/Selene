@@ -43,7 +43,7 @@ pub(crate) struct CsvExportOptions {
 }
 
 impl CsvExportOptions {
-    fn into_core(self) -> CsvOptions {
+    pub(crate) fn into_core(self) -> CsvOptions {
         CsvOptions {
             delimiter: first_byte(self.delimiter, b';'),
             quote: first_byte(self.quote, b'"'),

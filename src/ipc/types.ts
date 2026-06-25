@@ -193,6 +193,68 @@ export interface ColumnMappingArg {
 }
 
 // ---------------------------------------------------------------------------
+// Run on multiple targets (camelCase envelopes; embedded Column/CellValue keep
+// their own casing). Mirrors `src-tauri/src/commands/multi.rs` + the MultiEvent
+// enum in `commands/mod.rs`.
+// ---------------------------------------------------------------------------
+
+/** What `multi_target_run` does on each target (lowercase scalar). */
+export type MultiMode = "execute" | "results";
+
+/** One run target: a saved connection plus the explicit databases to run on. */
+export interface MultiTarget {
+  connectionId: string;
+  databases: string[];
+}
+
+/** One entry of `multi_target_resolve`: the databases a filter query matched on
+ *  a connection, or the (sanitized) error it produced. `error` is omitted on
+ *  success (`skip_serializing_if`). */
+export interface ResolvedTarget {
+  connectionId: string;
+  /** Connection display name; used as the `_server` label. */
+  server: string;
+  databases: string[];
+  error?: string;
+}
+
+/** Returned by `multi_target_run`: the id used to cancel the run. */
+export interface MultiRunHandle {
+  runId: string;
+}
+
+/**
+ * Events streamed by `multi_target_run` over a `Channel<MultiEvent>`.
+ * `execute`: `started` → (`target`, `targetDone`)* / `serverError`* →
+ * `finished`. `results` additionally emits one `meta` (unified columns, with
+ * `_server`/`_database` prepended) and `rows` batches. Can end in `cancelled`.
+ */
+export type MultiEvent =
+  | { kind: "started"; runId: string; total: number }
+  | {
+      kind: "target";
+      connectionId: string;
+      server: string;
+      database: string;
+      index: number;
+      total: number;
+    }
+  | { kind: "meta"; columns: Column[] }
+  | { kind: "rows"; rows: CellValue[][] }
+  | {
+      kind: "targetDone";
+      connectionId: string;
+      server: string;
+      database: string;
+      index: number;
+      rows: number | null;
+      error: string | null;
+    }
+  | { kind: "serverError"; connectionId: string; server: string; error: string }
+  | { kind: "finished"; succeeded: number; failed: number; rowsTotal: number }
+  | { kind: "cancelled" };
+
+// ---------------------------------------------------------------------------
 // Connection / session types
 // ---------------------------------------------------------------------------
 

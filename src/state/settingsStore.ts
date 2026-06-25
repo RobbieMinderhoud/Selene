@@ -79,6 +79,20 @@ export interface Settings {
     /** Abort the whole import on the first bad row (transactional). */
     atomic: boolean;
   };
+  /** "Run on multiple targets" defaults. */
+  multiTarget: {
+    /** Pre-fills the database-filter editor for a new multi-target view. */
+    defaultFilterQuery: string;
+    /** How many servers run concurrently (databases run sequentially per
+     *  server). Clamped to a sane range at the call site. */
+    maxParallelServers: number;
+    /** CSV options for the "Save CSV" of the aggregated results. Quoting and
+     *  header come from the `export` section; these are the ones users most
+     *  often want to differ for this combined export. */
+    csvDelimiter: CsvDelimiter;
+    /** Prepend a UTF-8 BOM so Excel opens the combined CSV without prompting. */
+    csvBom: boolean;
+  };
 }
 
 const DEFAULTS: Settings = {
@@ -118,6 +132,15 @@ const DEFAULTS: Settings = {
     hasHeader: true,
     emptyAsNull: true,
     atomic: true,
+  },
+  multiTarget: {
+    // Generic default: all non-system, online databases. Edit per run, or set
+    // your own default here (e.g. a name filter for a tenant-DB convention).
+    defaultFilterQuery:
+      "SELECT name\nFROM sys.databases\nWHERE database_id > 4 AND state_desc = 'ONLINE'\nORDER BY name",
+    maxParallelServers: 4,
+    csvDelimiter: ";",
+    csvBom: false,
   },
 };
 
@@ -195,6 +218,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           connection: merged.connection,
           export: merged.export,
           import: merged.import,
+          multiTarget: merged.multiTarget,
         }),
       );
       if (section === "appearance") {
@@ -220,6 +244,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           connection: merged.connection,
           export: merged.export,
           import: merged.import,
+          multiTarget: merged.multiTarget,
         }),
       );
       applyReduceMotion(merged.appearance.reduceMotion);

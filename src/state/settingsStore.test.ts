@@ -66,3 +66,41 @@ describe("settingsStore — import section", () => {
     expect(useSettingsStore.getState().import.atomic).toBe(true);
   });
 });
+
+describe("settingsStore — multiTarget section", () => {
+  it("has sensible defaults", () => {
+    const mt = useSettingsStore.getState().multiTarget;
+    expect(mt.maxParallelServers).toBe(4);
+    expect(mt.csvDelimiter).toBe(";");
+    expect(mt.csvBom).toBe(false);
+    expect(mt.defaultFilterQuery).toContain("sys.databases");
+  });
+
+  it("persists the multiTarget section to localStorage on set", () => {
+    useSettingsStore
+      .getState()
+      .set("multiTarget", { maxParallelServers: 8, csvBom: true });
+
+    expect(useSettingsStore.getState().multiTarget.maxParallelServers).toBe(8);
+    // The serialised blob MUST include the multiTarget section (two-block gotcha).
+    expect(
+      (stored().multiTarget as { maxParallelServers: number })
+        .maxParallelServers,
+    ).toBe(8);
+    expect((stored().multiTarget as { csvBom: boolean }).csvBom).toBe(true);
+  });
+
+  it("deep-merges multiTarget over defaults on importSettings", () => {
+    useSettingsStore
+      .getState()
+      .importSettings({ multiTarget: { maxParallelServers: 2 } });
+    const mt = useSettingsStore.getState().multiTarget;
+    expect(mt.maxParallelServers).toBe(2);
+    expect(mt.csvDelimiter).toBe(";"); // default preserved
+  });
+
+  it("fills the multiTarget section from defaults when a saved blob predates it", () => {
+    useSettingsStore.getState().importSettings({ export: { delimiter: "," } });
+    expect(useSettingsStore.getState().multiTarget.maxParallelServers).toBe(4);
+  });
+});

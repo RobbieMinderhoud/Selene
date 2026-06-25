@@ -15,6 +15,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import type {
+  CellValue,
+  Column,
   ColumnInfo,
   ColumnMappingArg,
   ConnectionSpec,
@@ -30,7 +32,12 @@ import type {
   ImportEvent,
   ImportSummary,
   ImportTargetArg,
+  MultiEvent,
+  MultiMode,
+  MultiRunHandle,
+  MultiTarget,
   QueryEvent,
+  ResolvedTarget,
   SchemaInfo,
   SessionInfo,
   TableInfo,
@@ -271,6 +278,71 @@ export function exportResult(
     maxRows,
     csvOptions,
     onProgress,
+  });
+}
+
+// --- Run on multiple targets ----------------------------------------------
+
+/**
+ * `multi_target_resolve` -> run `filterSql` against each connection's current
+ * server and return the database names it yields (column 0), or a per-connection
+ * error. Powers the run preview, the target count, and the "generate script"
+ * plan. Sequential server-by-server (it is a preview, not the hot path).
+ */
+export function multiTargetResolve(
+  connectionIds: string[],
+  filterSql: string,
+): Promise<ResolvedTarget[]> {
+  return invoke("multi_target_resolve", { connectionIds, filterSql });
+}
+
+/**
+ * `multi_target_run` -> run `sql` across every (server, database) in `targets`.
+ * Progress (and, in `results` mode, aggregated rows prefixed with
+ * `_server`/`_database`) arrive on `onEvent` (a `Channel<MultiEvent>`); the
+ * returned `{ runId }` is the cancellation handle. Returns immediately.
+ */
+export function multiTargetRun(
+  targets: MultiTarget[],
+  sql: string,
+  mode: MultiMode,
+  maxRows: number | undefined,
+  maxParallel: number | undefined,
+  onEvent: Channel<MultiEvent>,
+): Promise<MultiRunHandle> {
+  return invoke("multi_target_run", {
+    targets,
+    sql,
+    mode,
+    maxRows,
+    maxParallel,
+    onEvent,
+  });
+}
+
+/** `multi_target_cancel` -> request cooperative cancellation of a multi run. */
+export function multiTargetCancel(runId: string): Promise<void> {
+  return invoke("multi_target_cancel", { runId });
+}
+
+/**
+ * `export_result_set` -> write an already-collected result set (`columns` +
+ * `rows`) to `path` via the core exporter. Backs "Save CSV" for the aggregated
+ * multi-target grid without re-running the queries.
+ */
+export function exportResultSet(
+  columns: Column[],
+  rows: CellValue[][],
+  format: ExportFormat,
+  path: string,
+  csvOptions?: CsvOptions,
+): Promise<ExportSummary> {
+  return invoke("export_result_set", {
+    columns,
+    rows,
+    format,
+    path,
+    csvOptions,
   });
 }
 
