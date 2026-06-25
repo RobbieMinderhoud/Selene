@@ -55,5 +55,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: selene-${{ matrix.os }}
-          path: src-tauri/target/release/bundle/**/*.{exe,msi,dmg}
+          # upload-artifact's glob has no brace expansion; list patterns instead.
+          path: |
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.dmg
           if-no-files-found: error
