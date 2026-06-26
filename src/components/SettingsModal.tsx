@@ -614,6 +614,22 @@ export function SettingsModal({
                 setSection("multiTarget", { maxParallelServers: v })
               }
             />
+            <SettingSelect<number>
+              label="Pause after failures reach"
+              help="When this share of the run's targets has failed, the run pauses and asks whether to continue or stop. It prompts at most once per run. Off disables it."
+              value={s.multiTarget.pauseFailurePercent}
+              options={[
+                [0, "Off"],
+                [5, "5%"],
+                [10, "10%"],
+                [20, "20%"],
+                [25, "25%"],
+                [50, "50%"],
+              ]}
+              onChange={(v) =>
+                setSection("multiTarget", { pauseFailurePercent: v })
+              }
+            />
           </section>
           <section className={styles.section}>
             <h3 className={styles.sectionLabel}>Results CSV</h3>

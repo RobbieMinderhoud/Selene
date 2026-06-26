@@ -228,6 +228,8 @@ export interface MultiRunHandle {
  * `execute`: `started` → (`target`, `targetDone`)* / `serverError`* →
  * `finished`. `results` additionally emits one `meta` (unified columns, with
  * `_server`/`_database` prepended) and `rows` batches. Can end in `cancelled`.
+ * If the failure rate crosses the configured threshold, a single `paused`
+ * arrives and the run idles until resumed (more events) or cancelled.
  */
 export type MultiEvent =
   | { kind: "started"; runId: string; total: number }
@@ -251,6 +253,7 @@ export type MultiEvent =
       error: string | null;
     }
   | { kind: "serverError"; connectionId: string; server: string; error: string }
+  | { kind: "paused"; failed: number; total: number }
   | { kind: "finished"; succeeded: number; failed: number; rowsTotal: number }
   | { kind: "cancelled" };
 

@@ -24,6 +24,7 @@ import {
   multiTargetCancel,
   multiTargetResolve,
   multiTargetRun,
+  multiTargetResume,
 } from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
 import type {
@@ -154,7 +155,10 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
   }
 
   const selected = view.selectedConnectionIds;
-  const isRunning = view.runStatus === "running";
+  // A paused run is still active: keep the run buttons disabled, the Stop button
+  // shown, and block starting a second run until it resumes or is cancelled.
+  const isRunning = view.runStatus === "running" || view.runStatus === "paused";
+  const isPaused = view.runStatus === "paused";
   const allServersSelected =
     connections.length > 0 && selected.length === connections.length;
 
@@ -285,6 +289,9 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
       case "serverError":
         store.markServerError(tabId, ev.connectionId, ev.server, ev.error);
         break;
+      case "paused":
+        store.pauseRun(tabId, ev.failed, ev.total);
+        break;
       case "finished":
         store.finishRun(tabId, ev.succeeded, ev.failed, ev.rowsTotal);
         if (mode === "results")
@@ -353,6 +360,7 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
           mode,
           settings.results.defaultRowLimit,
           settings.multiTarget.maxParallelServers,
+          settings.multiTarget.pauseFailurePercent,
           channel,
         );
         // Keep the cancel handle even if the `started` event raced ahead.
@@ -375,6 +383,16 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
 
   function stop() {
     if (view?.runId) void multiTargetCancel(view.runId).catch(() => undefined);
+  }
+
+  // Pause-prompt actions. "Continue" resumes optimistically (the backend keeps
+  // streaming); "Stop" reuses the cancel path. Both close the prompt by moving
+  // the run out of the "paused" state.
+  function resumeRun() {
+    const id = view?.runId;
+    if (!id) return;
+    useMultiTargetStore.getState().resumeRun(tabId);
+    void multiTargetResume(id).catch(() => undefined);
   }
 
   // ── Derived progress numbers ────────────────────────────────────────────────
@@ -667,7 +685,11 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
               <h2>Progress</h2>
               <span className={styles.muted}>
                 {completed}/{view.total}
-                {view.runStatus === "cancelled" ? " · stopped" : ""}
+                {view.runStatus === "cancelled"
+                  ? " · stopped"
+                  : view.runStatus === "paused"
+                    ? " · paused"
+                    : ""}
               </span>
             </header>
             <div className={styles.progressBar}>
@@ -794,6 +816,40 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
         onConfirm={() => resolveConfirm(true)}
         onCancel={() => resolveConfirm(false)}
       />
+
+      {/* Failure-rate pause: the run idles after too many targets failed.
+          Dismissing (Esc/✕/backdrop) continues; the run only pauses once. */}
+      <Modal
+        open={isPaused}
+        title="Run paused — too many failures"
+        tone="warning"
+        onClose={resumeRun}
+        width="min(460px, 94vw)"
+        footer={
+          <>
+            <button type="button" className="danger" onClick={stop}>
+              Stop run
+            </button>
+            <button type="button" className="primary" onClick={resumeRun}>
+              Continue
+            </button>
+          </>
+        }
+      >
+        <p>
+          <strong>{view.failed}</strong> of {view.total} target
+          {view.total === 1 ? "" : "s"} have failed
+          {view.total > 0
+            ? ` (${Math.round((view.failed / view.total) * 100)}%)`
+            : ""}
+          .
+        </p>
+        <p className={styles.muted}>
+          The run is paused — no further databases will run until you choose.
+          Continue to run the remaining targets, or stop the run. It will not
+          pause again.
+        </p>
+      </Modal>
 
       {/* Matched-databases preview (query mode). Closing it leaves the resolved
           plan in place, so the run buttons stay available. */}

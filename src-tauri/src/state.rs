@@ -23,15 +23,93 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, Notify};
 
 use selene_core::{
     CancelToken, Connection, ConnectionSpec, CoreError, DriverCapabilities, DriverId,
     KeychainStore, Secret,
 };
+
+/// Pause/resume coordination for one in-flight multi-target run.
+///
+/// A multi-target run fans out across servers in parallel; each server task
+/// parks at this gate before starting its next database. When the run's failure
+/// rate crosses the configured threshold, exactly one task flips the gate
+/// ([`try_pause`](Self::try_pause)) so the whole run idles until the user
+/// resumes ([`resume`](Self::resume)) or cancels (which calls
+/// [`wake`](Self::wake) so parked tasks observe the cancel token and exit).
+///
+/// The gate triggers **at most once per run**: `try_pause` is a one-shot, so a
+/// run that the user chose to continue is never paused again.
+#[derive(Default)]
+pub struct PauseGate {
+    /// Whether the run is currently parked, waiting for a user decision.
+    paused: AtomicBool,
+    /// One-shot latch so the gate ever pauses at most once per run.
+    triggered: AtomicBool,
+    /// Wakes tasks parked in [`wait_while_paused`](Self::wait_while_paused).
+    notify: Notify,
+}
+
+impl PauseGate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Try to be the single task that pauses this run. Returns `true` exactly
+    /// once across all callers (and never again after a resume), so the caller
+    /// that wins is the one that should emit the `Paused` event.
+    pub fn try_pause(&self) -> bool {
+        if self
+            .triggered
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.paused.store(true, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether the run is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    /// Clear the pause and wake parked tasks so they continue (user chose
+    /// "Continue").
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    /// Wake parked tasks **without** clearing the pause. Used on cancel: the
+    /// woken tasks re-check the cancel token and exit.
+    pub fn wake(&self) {
+        self.notify.notify_waiters();
+    }
+
+    /// Park until the run is resumed or cancelled. A no-op when not paused.
+    pub async fn wait_while_paused(&self, cancel: &CancelToken) {
+        loop {
+            if cancel.is_cancelled() || !self.is_paused() {
+                return;
+            }
+            // Arm the notification *before* the final re-check so a resume/wake
+            // landing in this window is not lost.
+            let notified = self.notify.notified();
+            if cancel.is_cancelled() || !self.is_paused() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
 
 /// File name for the persisted connection list, under the app config dir.
 const CONNECTIONS_FILE: &str = "connections.json";
@@ -219,6 +297,11 @@ pub struct AppState {
     /// `std::sync::Mutex` suffices: it is only ever locked briefly to insert,
     /// look up, or remove a cheap clone of a token, never across `.await`.
     pub running: Mutex<HashMap<String, CancelToken>>,
+    /// Pause gates for in-flight multi-target runs, keyed by `run_id`, so
+    /// `multi_target_resume`/`multi_target_cancel` can wake parked server tasks.
+    /// Inserted in `multi_target_run`, removed when the run ends. A plain
+    /// `Mutex`: locked only briefly to insert, clone out, or remove a handle.
+    pub multi_gates: Mutex<HashMap<String, Arc<PauseGate>>>,
     /// The live filesystem watcher for file-backed tabs / workspace folders.
     /// Created lazily on the first `fs_watch` and dropped when no roots remain;
     /// a plain `Mutex` suffices (locked only briefly to add/remove a root).
@@ -238,6 +321,7 @@ impl AppState {
             secret_cache: Mutex::new(HashMap::new()),
             sessions: AsyncMutex::new(HashMap::new()),
             running: Mutex::new(HashMap::new()),
+            multi_gates: Mutex::new(HashMap::new()),
             watcher: Mutex::new(None),
             health: Mutex::new(HealthConfig::default()),
         })

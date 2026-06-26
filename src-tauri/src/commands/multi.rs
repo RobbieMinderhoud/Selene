@@ -49,10 +49,19 @@ use selene_core::{
 use crate::commands::export::CsvExportOptions;
 use crate::commands::MultiEvent;
 use crate::error::IpcError;
-use crate::state::{new_id, AppState};
+use crate::state::{new_id, AppState, PauseGate};
 
 /// Rows buffered per batch before flushing; also the cancellation granularity.
 const BATCH_SIZE: usize = 500;
+
+/// Whether `failed` of `total` databases has reached the configured pause
+/// percentage. `percent == 0` (or no targets) disables the gate. Integer math
+/// (no floats): pause once `failed/total >= percent/100`.
+fn reached_pause_threshold(failed: u64, total: usize, percent: u32) -> bool {
+    percent > 0
+        && total > 0
+        && failed.saturating_mul(100) >= (total as u64).saturating_mul(percent as u64)
+}
 
 /// Default per-database row cap in `results` mode (mirrors `query_run`). The cap
 /// is **per database**, so an aggregate across N databases can be up to N× this.
@@ -431,17 +440,24 @@ pub async fn multi_target_run<R: Runtime>(
     mode: MultiMode,
     max_rows: Option<u64>,
     max_parallel: Option<usize>,
+    pause_failure_percent: Option<u32>,
     on_event: Channel<MultiEvent>,
 ) -> Result<MultiRunHandle, IpcError> {
     let total: usize = targets.iter().map(|t| t.databases.len()).sum();
 
     let run_id = new_id();
     let cancel = CancelToken::new();
+    let gate = Arc::new(PauseGate::new());
     state
         .running
         .lock()
         .expect("running-queries mutex poisoned")
         .insert(run_id.clone(), cancel.clone());
+    state
+        .multi_gates
+        .lock()
+        .expect("multi-gates mutex poisoned")
+        .insert(run_id.clone(), gate.clone());
 
     if on_event
         .send(MultiEvent::Started {
@@ -455,12 +471,19 @@ pub async fn multi_target_run<R: Runtime>(
             .lock()
             .expect("running-queries mutex poisoned")
             .remove(&run_id);
+        state
+            .multi_gates
+            .lock()
+            .expect("multi-gates mutex poisoned")
+            .remove(&run_id);
         return Ok(MultiRunHandle { run_id });
     }
 
     tracing::info!(%run_id, targets = targets.len(), total, mode = ?mode, "multi-target run started");
 
     let parallel = max_parallel.unwrap_or(4).max(1);
+    // Clamp to a sane percentage; `0` disables the failure-rate pause.
+    let pause_percent = pause_failure_percent.unwrap_or(0).min(100);
     let task_run_id = run_id.clone();
     tauri::async_runtime::spawn(async move {
         run_multi_task::<R>(
@@ -472,7 +495,9 @@ pub async fn multi_target_run<R: Runtime>(
             max_rows,
             on_event,
             cancel,
+            gate,
             parallel,
+            pause_percent,
         )
         .await;
     });
@@ -492,7 +517,9 @@ async fn run_multi_task<R: Runtime>(
     max_rows: Option<u64>,
     on_event: Channel<MultiEvent>,
     cancel: CancelToken,
+    gate: Arc<PauseGate>,
     parallel: usize,
+    pause_percent: u32,
 ) {
     let sql = Arc::new(sql);
     let total: usize = targets.iter().map(|t| t.databases.len()).sum();
@@ -509,6 +536,7 @@ async fn run_multi_task<R: Runtime>(
         let app = app.clone();
         let channel = on_event.clone();
         let cancel = cancel.clone();
+        let gate = gate.clone();
         let sql = sql.clone();
         let meta = meta.clone();
         let succeeded = succeeded.clone();
@@ -525,7 +553,19 @@ async fn run_multi_task<R: Runtime>(
                 return;
             }
             run_target::<R>(
-                app, channel, cancel, sql, mode, target, total, max_rows, meta, succeeded, failed,
+                app,
+                channel,
+                cancel,
+                gate,
+                sql,
+                mode,
+                target,
+                total,
+                max_rows,
+                pause_percent,
+                meta,
+                succeeded,
+                failed,
                 rows_total,
             )
             .await;
@@ -538,6 +578,11 @@ async fn run_multi_task<R: Runtime>(
         .running
         .lock()
         .expect("running-queries mutex poisoned")
+        .remove(&run_id);
+    state
+        .multi_gates
+        .lock()
+        .expect("multi-gates mutex poisoned")
         .remove(&run_id);
 
     let succeeded = succeeded.load(Ordering::SeqCst);
@@ -565,11 +610,13 @@ async fn run_target<R: Runtime>(
     app: AppHandle<R>,
     channel: Channel<MultiEvent>,
     cancel: CancelToken,
+    gate: Arc<PauseGate>,
     sql: Arc<String>,
     mode: MultiMode,
     target: MultiTarget,
     total: usize,
     max_rows: Option<u64>,
+    pause_percent: u32,
     meta: Arc<MetaState>,
     succeeded: Arc<AtomicU64>,
     failed: Arc<AtomicU64>,
@@ -579,14 +626,28 @@ async fn run_target<R: Runtime>(
     let connection_id = target.connection_id;
     let db_count = target.databases.len() as u64;
 
+    // After a failure, pause the whole run if the failure rate crossed the
+    // threshold. `try_pause` wins for exactly one task across all servers, so
+    // only that task emits `Paused`; the rest park at the gate on their next
+    // iteration. A no-op once the run is already paused/resumed (one-shot).
+    let maybe_pause = |failed_now: u64| {
+        if reached_pause_threshold(failed_now, total, pause_percent) && gate.try_pause() {
+            let _ = channel.send(MultiEvent::Paused {
+                failed: failed_now as usize,
+                total,
+            });
+        }
+    };
+
     // A whole-server skip: count its databases as failed and report once.
     let server_error = |server: String, error: String| {
-        failed.fetch_add(db_count, Ordering::SeqCst);
+        let failed_now = failed.fetch_add(db_count, Ordering::SeqCst) + db_count;
         let _ = channel.send(MultiEvent::ServerError {
             connection_id: connection_id.clone(),
             server,
             error,
         });
+        maybe_pause(failed_now);
     };
 
     let spec = match state.store.get(&connection_id) {
@@ -639,6 +700,12 @@ async fn run_target<R: Runtime>(
         if cancel.is_cancelled() {
             break;
         }
+        // Park here if the run paused after crossing the failure threshold;
+        // in-flight queries above already finished. Wakes on resume or cancel.
+        gate.wait_while_paused(&cancel).await;
+        if cancel.is_cancelled() {
+            break;
+        }
         let index = (succeeded.load(Ordering::SeqCst) + failed.load(Ordering::SeqCst)) as usize + 1;
         let _ = channel.send(MultiEvent::Target {
             connection_id: connection_id.clone(),
@@ -649,7 +716,7 @@ async fn run_target<R: Runtime>(
         });
 
         if let Err(err) = conn.use_database(&database).await {
-            failed.fetch_add(1, Ordering::SeqCst);
+            let failed_now = failed.fetch_add(1, Ordering::SeqCst) + 1;
             let _ = channel.send(MultiEvent::TargetDone {
                 connection_id: connection_id.clone(),
                 server: server.clone(),
@@ -658,6 +725,7 @@ async fn run_target<R: Runtime>(
                 rows: None,
                 error: Some(IpcError::from(err).message),
             });
+            maybe_pause(failed_now);
             continue;
         }
 
@@ -701,9 +769,8 @@ async fn run_target<R: Runtime>(
             }
             Err(selene_core::CoreError::Cancelled) => break,
             Err(err) => {
-                failed.fetch_add(1, Ordering::SeqCst);
-                let done =
-                    (succeeded.load(Ordering::SeqCst) + failed.load(Ordering::SeqCst)) as usize;
+                let failed_now = failed.fetch_add(1, Ordering::SeqCst) + 1;
+                let done = (succeeded.load(Ordering::SeqCst) + failed_now) as usize;
                 let _ = channel.send(MultiEvent::TargetDone {
                     connection_id: connection_id.clone(),
                     server: server.clone(),
@@ -712,6 +779,7 @@ async fn run_target<R: Runtime>(
                     rows: None,
                     error: Some(IpcError::from(err).message),
                 });
+                maybe_pause(failed_now);
             }
         }
     }
@@ -735,6 +803,38 @@ pub async fn multi_target_cancel(
     if let Some(token) = token {
         token.cancel();
         tracing::info!(%run_id, "multi-target run cancel requested");
+    }
+    // Wake any server tasks parked at the pause gate so they observe the cancel
+    // and exit instead of waiting forever for a resume.
+    let gate = state
+        .multi_gates
+        .lock()
+        .expect("multi-gates mutex poisoned")
+        .get(&run_id)
+        .cloned();
+    if let Some(gate) = gate {
+        gate.wake();
+    }
+    Ok(())
+}
+
+/// Resume a [`multi_target_run`] that auto-paused after crossing the failure
+/// threshold (user chose "Continue"). Clears the pause and wakes parked server
+/// tasks. Unknown/finished ids are a no-op.
+#[tauri::command]
+pub async fn multi_target_resume(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<(), IpcError> {
+    let gate = state
+        .multi_gates
+        .lock()
+        .expect("multi-gates mutex poisoned")
+        .get(&run_id)
+        .cloned();
+    if let Some(gate) = gate {
+        gate.resume();
+        tracing::info!(%run_id, "multi-target run resume requested");
     }
     Ok(())
 }
@@ -869,5 +969,40 @@ mod tests {
                 .await;
         });
         assert_eq!(sink.values, ["e_alpha", "e_beta"]);
+    }
+
+    #[test]
+    fn pause_threshold_fires_at_or_above_percentage() {
+        // 10% of 100 = 10 failures.
+        assert!(!reached_pause_threshold(9, 100, 10));
+        assert!(reached_pause_threshold(10, 100, 10));
+        assert!(reached_pause_threshold(11, 100, 10));
+        // Rounds up for non-divisible totals: 10% of 25 is 2.5 → 3 failures.
+        assert!(!reached_pause_threshold(2, 25, 10));
+        assert!(reached_pause_threshold(3, 25, 10));
+    }
+
+    #[test]
+    fn pause_threshold_disabled_at_zero_percent_or_no_targets() {
+        // 0% disables the gate regardless of failures.
+        assert!(!reached_pause_threshold(50, 100, 0));
+        // No targets: nothing to gate on.
+        assert!(!reached_pause_threshold(0, 0, 10));
+    }
+
+    #[test]
+    fn pause_gate_triggers_once_then_resumes() {
+        let gate = PauseGate::new();
+        assert!(!gate.is_paused());
+        // try_pause is one-shot: the first caller wins, the rest are no-ops.
+        assert!(gate.try_pause());
+        assert!(gate.is_paused());
+        assert!(!gate.try_pause());
+        // After a resume the gate stays un-paused and never re-arms (prompt once
+        // per run), so a later try_pause does not pause it again.
+        gate.resume();
+        assert!(!gate.is_paused());
+        assert!(!gate.try_pause());
+        assert!(!gate.is_paused());
     }
 }

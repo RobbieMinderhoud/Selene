@@ -308,6 +308,7 @@ export function multiTargetRun(
   mode: MultiMode,
   maxRows: number | undefined,
   maxParallel: number | undefined,
+  pauseFailurePercent: number | undefined,
   onEvent: Channel<MultiEvent>,
 ): Promise<MultiRunHandle> {
   return invoke("multi_target_run", {
@@ -316,6 +317,7 @@ export function multiTargetRun(
     mode,
     maxRows,
     maxParallel,
+    pauseFailurePercent,
     onEvent,
   });
 }
@@ -323,6 +325,14 @@ export function multiTargetRun(
 /** `multi_target_cancel` -> request cooperative cancellation of a multi run. */
 export function multiTargetCancel(runId: string): Promise<void> {
   return invoke("multi_target_cancel", { runId });
+}
+
+/**
+ * `multi_target_resume` -> continue a run that auto-paused after its failure
+ * rate crossed the threshold (the user chose "Continue" in the prompt).
+ */
+export function multiTargetResume(runId: string): Promise<void> {
+  return invoke("multi_target_resume", { runId });
 }
 
 /**

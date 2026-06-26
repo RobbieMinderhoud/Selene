@@ -80,6 +80,29 @@ describe("multiTargetStore", () => {
     expect(view().progress[0].status).toBe("error");
   });
 
+  it("pauseRun marks paused and stores the at-pause counts", () => {
+    const s = useMultiTargetStore.getState();
+    s.startRun(TAB, "execute", 50, "run-1");
+    s.pauseRun(TAB, 5, 50);
+    expect(view().runStatus).toBe("paused");
+    expect(view().failed).toBe(5);
+    expect(view().total).toBe(50);
+    // The cancel handle is kept so Continue/Stop can act on the run.
+    expect(view().runId).toBe("run-1");
+  });
+
+  it("resumeRun returns a paused run to running, and is a no-op otherwise", () => {
+    const s = useMultiTargetStore.getState();
+    s.startRun(TAB, "execute", 10, "run-1");
+    s.pauseRun(TAB, 2, 10);
+    s.resumeRun(TAB);
+    expect(view().runStatus).toBe("running");
+    // Resuming a non-paused run must not change its status.
+    s.finishRun(TAB, 8, 2, 0);
+    s.resumeRun(TAB);
+    expect(view().runStatus).toBe("done");
+  });
+
   it("finishRun records authoritative counts and clears runId", () => {
     const s = useMultiTargetStore.getState();
     s.startRun(TAB, "results", 5, "run-1");
