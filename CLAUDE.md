@@ -330,6 +330,31 @@ own keychain items silently, so end users never see it.
   a preference"). Do not silently add hardcoded constants that a user might
   reasonably want to change.
 
+## Git workflow
+
+The repo is on GitHub (`RobbieMinderhoud/Selene`); use the **`gh` CLI** for
+issues and PRs. **Every conversation that leads to a code change goes through an
+issue → branch → PR** — do not commit straight to `main`. `main` stays
+releasable; each change merges via a PR and is eventually released (see
+_Versioning_). Conversations that touch no code (questions, exploration) don't
+need an issue.
+
+1. **Issue** — open one capturing the request or bug:
+   `gh issue create --title "…" --body "…"`. Note the number `N`.
+2. **Branch** — from an up-to-date `main`, named `N-short-description`
+   (e.g. `7-multi-target-preview`). Start with the issue number.
+3. **Implement, commit, push** the branch. Commit subjects are free-form,
+   imperative (Keep-a-Changelog voice); there is **no `- #` suffix** anymore (the
+   global `prepare-commit-msg` hook that appended it was removed). Per the global
+   rule, **never add a `Co-Authored-By` trailer** (a `commit-msg` hook also
+   strips Anthropic ones).
+4. **PR** — `gh pr create --base main --fill` (or with an explicit title/body).
+   Put `Closes #N` in the body so the merge closes the issue.
+5. **Merge + release** — after the PR merges to `main`, cut the release with the
+   `release` skill (CHANGELOG entry, version bump + sync, then push & tag with
+   explicit approval). Pushing a `v*` tag triggers the GitHub Actions build of the
+   Windows/macOS bundles.
+
 ## Versioning
 
 - **SemVer.** The `[workspace.package]` version in the root `Cargo.toml` is the
@@ -337,9 +362,12 @@ own keychain items silently, so end users never see it.
   `tauri.conf.json` and `package.json` (run `just version-check` to detect drift).
 - **`CHANGELOG.md`** follows _Keep a Changelog_ and lists **only functional
   (user-facing) changes**.
+- **CI:** a GitHub Actions workflow (`.github/workflows/build.yml`) builds the
+  Windows + macOS bundles on `workflow_dispatch` and on any pushed `v*` tag.
 - **Not yet set up** (now that the repo is public on GitHub): Conventional Commits,
-  git-cliff changelog automation, pre-commit hooks, CI, signed/notarized releases,
-  and auto-update. Do **not** create git tags without explicit user approval.
+  git-cliff changelog automation, pre-commit hooks, test/lint-on-PR CI,
+  signed/notarized releases, and auto-update. Do **not** create git tags without
+  explicit user approval.
 
 ## Roadmap (high level)
 
