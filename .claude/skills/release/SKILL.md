@@ -66,12 +66,11 @@ git add -A
 Commit message: a concise subject describing the change, ending with
 `; release vX.Y.Z`, then a body explaining the *why*/mechanism.
 
-**Two hook facts (`core.hooksPath` = `~/.githooks`):**
-- `prepare-commit-msg` **auto-appends ` - #<issue-number>`** (the number comes
-  from the branch name; empty on `main`, so you get a bare ` - #`). **Do NOT type
-  `- #` yourself** or it doubles to `- # - #`.
-- `commit-msg` strips `Co-Authored-By: …anthropic.com` trailers. Per the user's
-  global rule, **never add any `Co-Authored-By` trailer** regardless.
+**Hook fact (`core.hooksPath` = `~/.githooks`):** a `commit-msg` hook strips
+`Co-Authored-By: …anthropic.com` trailers. Per the user's global rule, **never
+add any `Co-Authored-By` trailer** regardless. (The old `prepare-commit-msg` hook
+that appended ` - #<issue-number>` has been removed — subjects are no longer
+suffixed, so don't add or expect a `- #`.)
 
 Use a heredoc so the body is preserved:
 
@@ -82,10 +81,6 @@ git commit -F - <<'EOF'
 <body: what changed and why>
 EOF
 ```
-
-Then verify the subject came out with a single ` - #`:
-`git log -1 --format='%s'`. If it doubled, `git commit --amend` with the suffix
-removed (the hook re-adds it).
 
 ## 6. STOP — confirm with the user before pushing
 
@@ -120,7 +115,9 @@ do it unprompted).
 
 - Do not create tags outside this confirmed flow (global rule: no tags without
   explicit approval — invoking this skill + the step-6 confirmation is the approval).
-- Not yet set up: Conventional Commits, git-cliff changelog automation, CI,
-  signed/notarized releases. If those land, revisit this runbook.
+- A pushed `v*` tag triggers the GitHub Actions build (`.github/workflows/build.yml`)
+  of the Windows + macOS bundles.
+- Not yet set up: Conventional Commits, git-cliff changelog automation,
+  test/lint-on-PR CI, signed/notarized releases. If those land, revisit this runbook.
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
