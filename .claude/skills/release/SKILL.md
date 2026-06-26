@@ -1,33 +1,40 @@
 ---
 name: release
-description: Cut a Selene release — update CHANGELOG, bump+sync version, run checks, commit, then (after explicit user confirmation) push and tag. Use when the user wants to release/ship a version, cut a patch/minor/major, or "release it".
+description: Cut a Selene release — fold the CHANGELOG + version bump into the feature PR, run checks, then (after explicit user confirmation) merge the PR and tag. Use when the user wants to release/ship a version, cut a patch/minor/major, or "release it".
 ---
 
 # Release Selene
 
-Runbook for cutting a Selene release. Follow the steps in order. **There is one
-hard stop: get explicit user confirmation before pushing or tagging** (push and
-tag are outward-facing and hard to undo).
+Runbook for cutting a Selene release. Changes are already developed on a feature
+branch with an open PR (see the git workflow in CLAUDE.md), so a release **folds
+the CHANGELOG + version bump into that PR, merges it to `main`, then tags** — you
+do **not** commit release changes straight to `main`. The pushed tag drives the
+GitHub Actions bundle build.
 
-## 0. Determine the version bump
+**One hard stop: get explicit user confirmation before merging the PR or pushing
+the tag** (both are outward-facing and hard to undo). Invoking this skill and
+confirming the target PR + version counts as that approval.
 
-SemVer. The `[workspace.package]` version in the root `Cargo.toml` is the single
-source of truth.
+## 0. Determine the target PR + version bump
 
-- If the user gave a level (patch/minor/major) or an explicit version, use it.
-- Otherwise infer from the changes (bugfix → patch, new feature → minor,
-  breaking → major) and state your choice. Ask only if genuinely ambiguous.
-- Compute the new version from the current one (e.g. 1.2.1 + patch → 1.2.2).
+- **Which PR** is being released? Usually the one just discussed/approved; if
+  several are open, confirm which. Note its number `N` and branch.
+- **Version** — SemVer; the `[workspace.package]` version in the root `Cargo.toml`
+  is the single source of truth. Infer from the changes (bugfix → patch, new
+  feature → minor, breaking → major) and state your choice; ask only if genuinely
+  ambiguous, or honour a level/version the user gave. Compute from the current one.
 
 ## 1. Pre-flight
 
 ```
-git status --short        # know what's uncommitted; expect only the release work
-git rev-parse --abbrev-ref HEAD   # confirm on main (the project releases on main)
-just version-check        # versions currently in sync
+git checkout <pr-branch>          # the release rides the feature PR's branch
+git pull --ff-only                # branch up to date with its remote
+git status --short                # clean working tree (only release work to come)
+gh pr view N --json state,baseRefName,headRefName   # PR OPEN, base main
+just version-check                # versions currently in sync
 ```
 
-## 2. Update CHANGELOG.md
+## 2. Update CHANGELOG.md (on the branch)
 
 `CHANGELOG.md` follows [Keep a Changelog]. **Functional (user-facing) changes
 only** — omit internal refactors, tooling, tests, and chores.
@@ -57,14 +64,19 @@ just version-check        # must report "version in sync: X.Y.Z"
   full cargo workspace + frontend; heavier).
 - Everything must be green before committing. Report failures; don't push past them.
 
-## 5. Commit
+## 5. Commit + push the branch
 
 ```
 git add -A
+git commit -F - <<'EOF'
+<subject>; release vX.Y.Z
+
+<body: what changed and why>
+EOF
+git push origin <pr-branch>
 ```
 
-Commit message: a concise subject describing the change, ending with
-`; release vX.Y.Z`, then a body explaining the *why*/mechanism.
+Commit subject: concise, describing the change, ending with `; release vX.Y.Z`.
 
 **Hook fact (`core.hooksPath` = `~/.githooks`):** a `commit-msg` hook strips
 `Co-Authored-By: …anthropic.com` trailers. Per the user's global rule, **never
@@ -72,38 +84,34 @@ add any `Co-Authored-By` trailer** regardless. (The old `prepare-commit-msg` hoo
 that appended ` - #<issue-number>` has been removed — subjects are no longer
 suffixed, so don't add or expect a `- #`.)
 
-Use a heredoc so the body is preserved:
-
-```
-git commit -F - <<'EOF'
-<subject>; release vX.Y.Z
-
-<body: what changed and why>
-EOF
-```
-
-## 6. STOP — confirm with the user before pushing
+## 6. STOP — confirm with the user before merging + tagging
 
 Show the user:
 - the release commit (`git log -1 --format='%h %s'` + `git show --stat HEAD`),
 - the new version, and
-- that the next steps will **push to `main`** and **create+push the annotated
-  tag `vX.Y.Z`**.
+- that the next steps will **merge PR #N into `main`** and **create + push the
+  annotated tag `vX.Y.Z`** (which triggers the bundle build).
 
-Wait for explicit approval. Do not push or tag until they confirm.
+Wait for explicit approval (already satisfied if they confirmed the PR + version
+when invoking the skill). Do not merge or tag until they confirm.
 
-## 7. Push
+## 7. Merge the PR
 
 ```
-git push origin main
+gh pr merge N --squash --delete-branch    # squash matches the repo's merge history
 ```
+
+The squashed commit on `main` carries the feature **plus** the version bump and
+CHANGELOG entry.
 
 ## 8. Tag
 
-Annotated tag, named `vX.Y.Z`, message `Selene vX.Y.Z`, on the release commit:
+Annotated tag, named `vX.Y.Z`, message `Selene vX.Y.Z`, on the new `main` HEAD
+(the squash-merge commit):
 
 ```
-git tag -a vX.Y.Z -m "Selene vX.Y.Z" <release-commit>
+git checkout main && git pull --ff-only
+git tag -a vX.Y.Z -m "Selene vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
