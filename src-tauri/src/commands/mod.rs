@@ -116,7 +116,9 @@ pub enum ImportEvent {
 /// `execute` mode: `Started` → (`Target`, `TargetDone`)* / `ServerError`* →
 /// `Finished`. `results` mode additionally emits a single `Meta` (the unified
 /// columns, with `_server`/`_database` prepended) and `Rows` batches as data
-/// arrives across targets. A run can instead end in `Cancelled`.
+/// arrives across targets. A run can instead end in `Cancelled`. If the failure
+/// rate crosses the configured threshold the run emits a single `Paused` and
+/// idles until resumed (more events) or cancelled.
 ///
 /// Server names, database names, and row counts are safe to put on the wire;
 /// they are identifiers and aggregate metrics, never row/cell data or secrets.
@@ -163,6 +165,12 @@ pub enum MultiEvent {
         server: String,
         error: String,
     },
+    /// The run auto-paused after the failure rate crossed the configured
+    /// threshold; it idles until `multi_target_resume` (continue) or
+    /// `multi_target_cancel` (stop). Emitted at most once per run. `failed` and
+    /// `total` are database counts (for the prompt's "N of M" wording).
+    #[serde(rename_all = "camelCase")]
+    Paused { failed: usize, total: usize },
     /// The run completed. Counts are over databases, not servers.
     #[serde(rename_all = "camelCase")]
     Finished {

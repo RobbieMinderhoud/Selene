@@ -220,6 +220,7 @@ pub fn run() {
             commands::multi::multi_target_resolve,
             commands::multi::multi_target_run,
             commands::multi::multi_target_cancel,
+            commands::multi::multi_target_resume,
             commands::multi::export_result_set,
             // Import
             commands::import::import_csv_analyze,

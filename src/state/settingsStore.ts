@@ -86,6 +86,10 @@ export interface Settings {
     /** How many servers run concurrently (databases run sequentially per
      *  server). Clamped to a sane range at the call site. */
     maxParallelServers: number;
+    /** Pause the run and prompt to continue/stop once this percentage of the
+     *  planned targets has failed. `0` disables the failure-rate pause.
+     *  Prompts at most once per run. */
+    pauseFailurePercent: number;
     /** CSV options for the "Save CSV" of the aggregated results. Quoting and
      *  header come from the `export` section; these are the ones users most
      *  often want to differ for this combined export. */
@@ -139,6 +143,7 @@ const DEFAULTS: Settings = {
     defaultFilterQuery:
       "SELECT name\nFROM sys.databases\nWHERE database_id > 4 AND state_desc = 'ONLINE'\nORDER BY name",
     maxParallelServers: 4,
+    pauseFailurePercent: 10,
     csvDelimiter: ";",
     csvBom: false,
   },
