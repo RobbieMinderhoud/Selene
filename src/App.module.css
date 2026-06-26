@@ -16,10 +16,64 @@
   background: var(--canvas);
 }
 
+/* Windows: the strip IS the (custom) title bar, so the controls run flush to the
+   top-right corner — drop the right padding the macOS brand strip uses. */
+.titlebarWindows {
+  padding-right: 0;
+}
+
 .brand {
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
+}
+
+/* Windows-only cluster: settings gear + window controls. Opt out of the drag
+   region so the buttons receive clicks instead of moving the window. */
+.titlebarRight {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.settingsBtn {
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.settingsBtn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border: none;
+  color: var(--text);
+}
+
+.settingsBtn:active:not(:disabled) {
+  transform: none;
+  background: var(--surface-2);
+}
+
+.settingsBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Playful quarter-turn on hover, echoing the brand logo's tilt. */
+.settingsBtn svg {
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
+.settingsBtn:hover svg {
+  transform: rotate(90deg);
 }
 
 .logo {

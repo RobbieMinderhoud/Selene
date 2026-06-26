@@ -510,8 +510,10 @@ async fn dml_reports_rows_affected_as_columnless_result_set() {
 ///   * actually switch the connection's database — the `USE` runs on the
 ///     persistent batch path, not inside the affected-count `sp_executesql`
 ///     call (where it would not persist), and
-///   * report each inner INSERT's affected-row count as a column-less set,
-///     trimming the `BEGIN TRAN` / `ROLLBACK` wrapper's phantom zero-count sets.
+///   * report each row-affecting statement's count as a column-less set — the
+///     two INSERTs and the `SET @id = (SELECT ...)` assignment each touch one
+///     row — while trimming the `BEGIN TRAN` / `ROLLBACK` wrapper's phantom
+///     zero-count sets.
 /// The transaction is rolled back, so the table is left empty.
 #[tokio::test]
 #[ignore = "requires Docker; run with --ignored"]
@@ -542,22 +544,28 @@ async fn use_prefixed_rollback_dml_switches_db_and_reports_counts() {
 
     let (outcome, sink) = run(conn, sql, &ExecOptions::default()).await;
 
-    // Two column-less affected-count sets (the wrapper's zero-count sets are
-    // trimmed), each touching exactly one row.
-    assert_eq!(outcome.result_sets, 2, "two inner INSERTs → two count sets");
+    // Three column-less affected-count sets, each touching exactly one row: the
+    // two INSERTs plus the `SET @id = (SELECT SCOPE_IDENTITY())` assignment,
+    // which SQL Server also reports as one row affected (SSMS prints three
+    // "(1 row affected)" messages for this batch). The wrapper's genuine
+    // zero-count sets (BEGIN TRAN / DECLARE / ROLLBACK) are still trimmed —
+    // without trimming there would be many more.
+    assert_eq!(
+        outcome.result_sets, 3,
+        "two INSERTs + the scalar SELECT assignment → three count sets"
+    );
     assert_eq!(outcome.total_rows, 0);
     assert!(
         outcome.rolled_back,
         "rollback-wrapped dry-run must be flagged as rolled back"
     );
     let sets = sink.sets();
-    assert_eq!(sets.len(), 2);
+    assert_eq!(sets.len(), 3);
     for set in &sets {
         assert!(set.columns.is_empty(), "count set has no columns");
         assert!(set.rows.is_empty(), "count set has no row data");
+        assert_eq!(set.affected, vec![Some(1)], "each set touches one row");
     }
-    assert_eq!(sets[0].affected, vec![Some(1)]);
-    assert_eq!(sets[1].affected, vec![Some(1)]);
 
     // The leading USE persisted: the connection is now in the target database.
     assert_eq!(
@@ -1051,14 +1059,11 @@ async fn csv_export_round_trip_against_real_driver() {
     let summary = exporter.finish().expect("finish CSV export");
     assert_eq!(summary.rows_written, 2);
 
-    // Read it back. The csv writer uses an LF terminator and quotes nothing here
-    // (no commas/quotes/newlines in the data). Decimal keeps its exact text.
+    // Read it back. CsvOptions defaults line_ending to CRLF (RFC-4180 / Excel),
+    // so the writer terminates each record with \r\n. Nothing is quoted here (no
+    // commas/quotes/newlines in the data); decimal keeps its exact text.
     let contents = std::fs::read_to_string(tmp.path()).expect("read CSV back");
-    let expected = "\
-id,name,amount
-1,alpha,10.50
-2,beta,20.25
-";
+    let expected = "id,name,amount\r\n1,alpha,10.50\r\n2,beta,20.25\r\n";
     assert_eq!(contents, expected, "CSV round-trip mismatch");
 }
 

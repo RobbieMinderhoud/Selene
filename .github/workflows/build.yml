@@ -58,8 +58,9 @@ jobs:
           name: selene-${{ matrix.os }}
           # Cargo workspace: target/ is at the repo root, not under src-tauri/.
           # upload-artifact's glob has no brace expansion; list patterns instead.
+          # Windows ships only the NSIS .exe (MSI is disabled in
+          # tauri.windows.conf.json); macOS ships the .dmg.
           path: |
             target/release/bundle/**/*.exe
-            target/release/bundle/**/*.msi
             target/release/bundle/**/*.dmg
           if-no-files-found: error

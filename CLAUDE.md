@@ -362,12 +362,21 @@ need an issue.
   `tauri.conf.json` and `package.json` (run `just version-check` to detect drift).
 - **`CHANGELOG.md`** follows _Keep a Changelog_ and lists **only functional
   (user-facing) changes**.
-- **CI:** a GitHub Actions workflow (`.github/workflows/build.yml`) builds the
-  Windows + macOS bundles on `workflow_dispatch` and on any pushed `v*` tag.
+- **CI:** GitHub Actions workflows in `.github/workflows/`:
+  - `ci.yml` — the test + lint pipeline. Runs on every pull request and push to
+    `main`: a **Frontend** job (`prettier --check`, `eslint`, `tsc --noEmit`,
+    `vitest`, production `pnpm build`) and a **Rust** job (`cargo fmt --check`,
+    `clippy -D warnings`, `cargo test --workspace`, with the Tauri Linux system
+    deps + a stub `dist/` so `src-tauri` compiles). Both checks are required to
+    merge (branch protection on `main`).
+  - `integration.yml` — dockerized MSSQL integration tests
+    (`cargo test -p selene-core --features mssql -- --ignored`), nightly + manual
+    `workflow_dispatch`. Kept off the per-PR path to keep PR feedback fast.
+  - `build.yml` — builds the Windows + macOS bundles on `workflow_dispatch` and
+    on any pushed `v*` tag.
 - **Not yet set up** (now that the repo is public on GitHub): Conventional Commits,
-  git-cliff changelog automation, pre-commit hooks, test/lint-on-PR CI,
-  signed/notarized releases, and auto-update. Do **not** create git tags without
-  explicit user approval.
+  git-cliff changelog automation, pre-commit hooks, signed/notarized releases,
+  and auto-update. Do **not** create git tags without explicit user approval.
 
 ## Roadmap (high level)
 

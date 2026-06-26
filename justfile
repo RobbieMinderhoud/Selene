@@ -62,8 +62,11 @@ test-core:
     cargo test -p selene-core
 
 # Dockerized-MSSQL integration tests (needs Docker; ephemeral ports, no 1433 clash).
+# Scoped to the mssql_integration binary so it doesn't also run the lib's
+# `live_keychain_round_trip` test (that one is `#[ignore]`d for manual runs —
+# see its doc comment for the command).
 test-integration:
-    cargo test -p selene-core --features mssql -- --ignored
+    cargo test -p selene-core --features mssql --test mssql_integration -- --ignored
 
 # Lint: clippy with warnings-as-errors (+ frontend lint once configured).
 lint:

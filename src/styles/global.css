@@ -33,6 +33,15 @@ body {
   flex-direction: column;
 }
 
+/* Custom title bar drag handle (Windows, where decorations are off). WebView2
+   uses the CSS app-region for window dragging incl. touch/pen; interactive
+   children opt back out with `app-region: no-drag`. No-op on macOS (the native
+   title bar handles dragging and the attribute isn't rendered there). */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
 button {
   font-family: inherit;
   font-size: var(--fs-sm);
