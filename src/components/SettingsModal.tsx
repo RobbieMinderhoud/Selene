@@ -259,9 +259,7 @@ export function SettingsModal({
     <Modal open={open} title="Settings" onClose={onClose} width={520}>
       {/* ── Tab navigation ────────────────────────────────────────────── */}
       <div className={styles.tabList} role="tablist">
-        {(
-          ["general", "csv", "multiTarget", "backup"] as Tab[]
-        ).map((tab) => (
+        {(["general", "csv", "multiTarget", "backup"] as Tab[]).map((tab) => (
           <button
             key={tab}
             type="button"
