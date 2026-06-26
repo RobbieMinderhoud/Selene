@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "lint": "eslint .",
     "format": "prettier -w .",
+    "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

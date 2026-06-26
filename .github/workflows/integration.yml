@@ -1,0 +1,35 @@
+name: Integration tests
+
+# Dockerized MSSQL integration tests: testcontainers spins up a real SQL Server
+# (ephemeral host port, no 1433 clash). Kept off the per-PR path to keep PR
+# feedback fast and avoid the ~1.5GB image pull on every PR — runs nightly and
+# on demand from the Actions tab.
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: MSSQL integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          key: integration
+
+      # selene-core has zero Tauri dependency, so no WebKitGTK/GTK deps are
+      # needed here. testcontainers talks to the Docker daemon that is
+      # preinstalled on GitHub's ubuntu runners.
+      - name: Run integration tests
+        run: cargo test -p selene-core --features mssql -- --ignored

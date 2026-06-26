@@ -50,8 +50,7 @@ export function ResultsPanel({ tabId }: ResultsPanelProps) {
     return (
       <div className={styles.panel}>
         <div className={styles.placeholder}>
-          Run a query to see results. Press{" "}
-          <kbd>{isMac ? "⌘" : "Ctrl"}</kbd>
+          Run a query to see results. Press <kbd>{isMac ? "⌘" : "Ctrl"}</kbd>
           <kbd>Enter</kbd> to run.
         </div>
       </div>

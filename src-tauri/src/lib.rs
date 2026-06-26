@@ -20,7 +20,12 @@ mod state;
 
 pub use error::IpcError;
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
+// `Emitter` (app.emit) is only used by the macOS native menu handler below,
+// which is `#[cfg(target_os = "macos")]`. Gate the import so non-macOS builds
+// don't trip the unused-import lint.
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
 use tauri_plugin_log::{Target, TargetKind};
 
 use state::AppState;
