@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "Selene",
+        "width": 1280,
+        "height": 800,
+        "dragDropEnabled": false,
+        "decorations": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["nsis"]
+  }
+}

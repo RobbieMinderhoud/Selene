@@ -12,6 +12,7 @@ import { exportResult } from "../ipc/commands";
 import { createExportChannel } from "../ipc/channels";
 import { asIpcError } from "../ipc/types";
 import type { ExportFormat } from "../ipc/types";
+import { isMac } from "../lib/platform";
 import { useEditorStore } from "../state/editorStore";
 import type { ResultState } from "../state/editorStore";
 import { selectSession, useSessionStore } from "../state/sessionStore";
@@ -50,7 +51,7 @@ export function ResultsPanel({ tabId }: ResultsPanelProps) {
       <div className={styles.panel}>
         <div className={styles.placeholder}>
           Run a query to see results. Press{" "}
-          <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}</kbd>
+          <kbd>{isMac ? "⌘" : "Ctrl"}</kbd>
           <kbd>Enter</kbd> to run.
         </div>
       </div>

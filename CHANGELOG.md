@@ -8,6 +8,24 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.2] - 2026-06-26
+
+### Added
+
+- **Windows gets an in-app settings button and integrated window controls.**
+  Since Windows has no native menu bar, the title bar now carries a settings
+  gear (also opened with `Ctrl+,`) plus its own minimize / maximize / close
+  buttons, and the native OS title bar is hidden so the app owns the whole top
+  strip. macOS is unchanged — it keeps its native menu and title bar.
+
+### Changed
+
+- **The right-click menu no longer shows the browser's defaults** (Save as,
+  Print, Share). The native context menu is suppressed everywhere except inside
+  the SQL editor and text fields, where copy/paste stays available.
+- **The Windows installer now ships as a single `.exe`** (the NSIS setup),
+  dropping the separate `.msi`.
+
 ## [1.3.1] - 2026-06-26
 
 ### Changed

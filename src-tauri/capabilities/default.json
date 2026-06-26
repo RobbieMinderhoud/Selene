@@ -1,7 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window: core APIs, the native save dialog (export), and the logging plugin.",
+  "description": "Capability for the main window: core APIs, the native save dialog (export), the logging plugin, and the custom-title-bar window controls (Windows).",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default", "log:default"]
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "log:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized"
+  ]
 }
