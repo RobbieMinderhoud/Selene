@@ -8,6 +8,19 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.3] - 2026-06-26
+
+### Added
+
+- **Run on multiple targets now pauses and asks when too many targets fail.**
+  Once the share of failed targets reaches a threshold, the run stops starting
+  new databases and a dialog offers **Continue** (run the rest) or **Stop**. This
+  catches a query that's failing everywhere early, and quiets the progress
+  updates that made a big run feel sluggish and the Stop button hard to hit. The
+  threshold is a percentage of the run's planned targets — set it (or turn it
+  off) under **Settings → Multi-target → "Pause after failures reach"**, default
+  10%. The run prompts at most once; after Continue it runs to the end.
+
 ## [1.3.2] - 2026-06-26
 
 ### Added
