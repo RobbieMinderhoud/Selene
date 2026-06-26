@@ -44,7 +44,9 @@ describe("WindowControls", () => {
     render(<WindowControls />);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { name: "Restore" }),
+      ).toBeInTheDocument(),
     );
   });
 });
