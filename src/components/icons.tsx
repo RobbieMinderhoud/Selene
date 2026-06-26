@@ -49,6 +49,8 @@ import {
   Regex,
   WholeWord,
   ChevronUp,
+  Settings,
+  Minus,
   type LucideIcon,
   type LucideProps,
 } from "lucide-react";
@@ -110,6 +112,15 @@ export const RegexIcon = icon(Regex, { size: 16 }); // ".*" glyph
 export const WholeWordIcon = icon(WholeWord, { size: 16 }); // "ab|" glyph
 export const PrevMatchIcon = icon(ChevronUp);
 export const NextMatchIcon = icon(ChevronDown);
+
+// App chrome (Windows-only title bar). The native menu carries Settings on
+// macOS; on Windows it lives behind this gear. Window controls use a single
+// line (minimize), a square (maximize), two stacked squares (restore), and the
+// shared X (close) to match the platform convention.
+export const SettingsIcon = icon(Settings);
+export const WindowMinimizeIcon = icon(Minus, { size: 16 });
+export const WindowMaximizeIcon = icon(Square, { size: 12 });
+export const WindowRestoreIcon = icon(Copy, { size: 12 });
 
 // Toast severity.
 export const ErrorIcon = icon(CircleAlert, { size: 16 });

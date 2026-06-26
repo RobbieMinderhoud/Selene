@@ -1,0 +1,50 @@
+/* Windows window controls: square, flush to the top-right corner, sitting on
+   the canvas-coloured title bar. Out of the drag region so they stay clickable. */
+
+.controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Square, borderless, full-height buttons. We deliberately override the global
+   button chrome (border/radius/padding) — these are window-frame controls, not
+   in-app buttons. */
+.btn {
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  /* Snap-quick hover/press feedback via the motion tokens. */
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border: none;
+  color: var(--text);
+}
+
+.btn:active:not(:disabled) {
+  /* Frame controls shouldn't dip/scale like in-app buttons. */
+  transform: none;
+  background: var(--surface-2);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Close goes red on hover, the universal Windows affordance. */
+.close:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}

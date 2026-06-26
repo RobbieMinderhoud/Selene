@@ -24,6 +24,8 @@ import { LogoMark } from "./components/LogoMark";
 
 import { listen } from "@tauri-apps/api/event";
 
+import { isMac, isWindows } from "./lib/platform";
+
 import { fsWatch, setHealthCheck } from "./ipc/commands";
 import {
   newQuery,
@@ -51,6 +53,8 @@ import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { Toasts } from "./components/Toasts";
 import { SettingsModal } from "./components/SettingsModal";
+import { WindowControls } from "./components/WindowControls";
+import { SettingsIcon } from "./components/icons";
 import styles from "./App.module.css";
 
 // The editor pane pulls in CodeMirror + the data grid (the bulk of the JS), so
@@ -115,6 +119,28 @@ export default function App() {
     return () => window.removeEventListener("blur", onBlur);
   }, []);
 
+  // Suppress the webview's default right-click menu (the browser-y "Save as /
+  // Print / Share" items, most glaring on Windows' WebView2). We keep it inside
+  // editable surfaces — text inputs, textareas, and the CodeMirror editor
+  // (`.cm-content` is contenteditable) — so native copy/paste still works there.
+  // The app's own context menus (SchemaTree) preventDefault on their own and are
+  // unaffected.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest(
+          'input, textarea, [contenteditable=""], [contenteditable="true"]',
+        )
+      ) {
+        return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => window.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
   // Restore last session, then start persistence + file-sync. Guarded so it
   // runs exactly once even under StrictMode's double-invoked effects (which
   // would otherwise install duplicate listeners).
@@ -170,7 +196,6 @@ export default function App() {
       listen("menu:close-tab", () => closeActiveTab()),
     ];
 
-    const isMac = /mac/i.test(navigator.platform || navigator.userAgent);
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       const k = e.key.toLowerCase();
@@ -186,6 +211,10 @@ export default function App() {
       } else if (k === "w") {
         e.preventDefault();
         closeActiveTab();
+      } else if (k === ",") {
+        // Windows/Linux have no native menu, so bind the macOS Cmd+, accelerator.
+        e.preventDefault();
+        setSettingsOpen(true);
       }
     };
     if (!isMac) window.addEventListener("keydown", onKey);
@@ -198,12 +227,32 @@ export default function App() {
 
   return (
     <div className={styles.app}>
-      <header className={styles.titlebar}>
+      <header
+        className={`${styles.titlebar}${isWindows ? ` ${styles.titlebarWindows}` : ""}`}
+        // Windows has no native title bar (decorations: false); the whole strip
+        // becomes the drag handle. macOS keeps its native title bar, so no
+        // drag region there.
+        data-tauri-drag-region={isWindows ? true : undefined}
+      >
         <div className={styles.brand}>
           <LogoMark size={18} className={styles.logo} aria-hidden />
           <span className={styles.product}>Selene</span>
           <span className={styles.tagline}>SQL editor</span>
         </div>
+        {isWindows && (
+          <div className={styles.titlebarRight}>
+            <button
+              type="button"
+              className={styles.settingsBtn}
+              aria-label="Settings"
+              title="Settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <SettingsIcon size={16} />
+            </button>
+            <WindowControls />
+          </div>
+        )}
       </header>
 
       <div className={styles.body}>
