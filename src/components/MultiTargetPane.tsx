@@ -43,6 +43,7 @@ import { useSettingsStore } from "../state/settingsStore";
 import { useThemeStore } from "../state/themeStore";
 import { toastError, toastInfo, useToastStore } from "../state/toastStore";
 import { GuardModal } from "./GuardModal";
+import { Modal } from "./Modal";
 import {
   CancelIcon,
   CheckIcon,
@@ -103,6 +104,8 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
   }, [tabId, ensure]);
 
   const [guard, setGuard] = useState<GuardPrompt>(null);
+  // Whether the "matched databases" preview modal (query mode) is showing.
+  const [previewOpen, setPreviewOpen] = useState(false);
   const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
   const runInFlight = useRef(false);
 
@@ -135,8 +138,10 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
   );
 
   // Stable editor change handlers (CodeMirror reconfigures when onChange changes).
+  // Editing the filter invalidates the previewed plan: the run buttons hide
+  // until the new filter is previewed, so a run can't target a stale set.
   const onFilterChange = useCallback(
-    (v: string) => update(tabId, { filterSql: v }),
+    (v: string) => update(tabId, { filterSql: v, resolved: [] }),
     [update, tabId],
   );
   const onQueryChange = useCallback(
@@ -195,6 +200,29 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
           if (!r.error) setListSelection(tabId, r.connectionId, r.databases);
         }
       }
+    } catch (e) {
+      update(tabId, { resolving: false, error: asIpcError(e).message });
+    }
+  }
+
+  // ── Preview databases (query mode) ──────────────────────────────────────────
+  /**
+   * Resolve the filter query against every selected server and open the preview
+   * modal listing the matched databases. In query mode a preview is required
+   * before a run: the Generate script / Execute / Fetch results buttons only
+   * appear once a plan exists, and editing the filter clears it (forcing a fresh
+   * preview), so a run can never target a stale or unseen database set.
+   */
+  async function previewDatabases() {
+    if (!view || !selected.length) {
+      toastError("No servers selected", "Pick at least one server first.");
+      return;
+    }
+    update(tabId, { resolving: true, error: null });
+    try {
+      const resolved = await multiTargetResolve(selected, view.filterSql);
+      update(tabId, { resolved, resolving: false });
+      setPreviewOpen(true);
     } catch (e) {
       update(tabId, { resolving: false, error: asIpcError(e).message });
     }
@@ -466,17 +494,15 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
                 Pick from list
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void preview()}
-              disabled={view.resolving || !selected.length}
-            >
-              {view.resolving
-                ? "Loading…"
-                : view.dbMode === "query"
-                  ? "Preview"
-                  : "Load databases"}
-            </button>
+            {view.dbMode === "list" && (
+              <button
+                type="button"
+                onClick={() => void preview()}
+                disabled={view.resolving || !selected.length}
+              >
+                {view.resolving ? "Loading…" : "Load databases"}
+              </button>
+            )}
           </header>
 
           {view.dbMode === "query" && (
@@ -490,20 +516,9 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
 
           {view.error && <p className={styles.error}>{view.error}</p>}
 
-          {/* Resolved preview / pick list */}
-          {view.resolved.length > 0 && (
+          {/* Pick list (list mode). Query mode previews into a modal instead. */}
+          {view.dbMode === "list" && view.resolved.length > 0 && (
             <div className={styles.resolved}>
-              {view.dbMode === "query" && (
-                <p className={styles.muted}>
-                  {targetCount} database{targetCount === 1 ? "" : "s"} across{" "}
-                  {
-                    view.resolved.filter(
-                      (r) => selected.includes(r.connectionId) && !r.error,
-                    ).length
-                  }{" "}
-                  server{selected.length === 1 ? "" : "s"}
-                </p>
-              )}
               {view.resolved
                 .filter((r) => selected.includes(r.connectionId))
                 .map((r) => {
@@ -517,7 +532,7 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
                         <strong>{r.server}</strong>
                         {r.error ? (
                           <span className={styles.error}>{r.error}</span>
-                        ) : view.dbMode === "list" ? (
+                        ) : (
                           <>
                             <span className={styles.muted}>
                               {picked.length}/{r.databases.length} selected
@@ -536,14 +551,9 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
                               {allPicked ? "Clear" : "Select all"}
                             </button>
                           </>
-                        ) : (
-                          <span className={styles.muted}>
-                            {r.databases.length} database
-                            {r.databases.length === 1 ? "" : "s"}
-                          </span>
                         )}
                       </div>
-                      {!r.error && view.dbMode === "list" && (
+                      {!r.error && (
                         <div className={`${styles.list} ${styles.dbListBox}`}>
                           {r.databases.map((db) => {
                             const on = picked.includes(db);
@@ -571,11 +581,6 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
                           })}
                         </div>
                       )}
-                      {!r.error && view.dbMode === "query" && (
-                        <div className={styles.dbNames}>
-                          {r.databases.join(", ") || "—"}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -599,35 +604,53 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
             ariaLabel="Query to run on each database"
           />
           <div className={styles.actions}>
-            <button
-              type="button"
-              onClick={generateScript}
-              disabled={isRunning || !targetCount}
-              title="Build a per-database script and open it in a new tab"
-            >
-              <CopyIcon />
-              Generate script
-            </button>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => void startRun("execute")}
-              disabled={isRunning || !targetCount}
-              title="Run the query on every selected database"
-            >
-              <RunIcon />
-              Execute
-            </button>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => void startRun("results")}
-              disabled={isRunning || !targetCount}
-              title="Run a SELECT on every database and aggregate the rows"
-            >
-              <RunIcon />
-              Fetch results
-            </button>
+            {/* Query mode: preview the matched databases first; the run buttons
+                only appear once a plan exists. List mode hand-picks them above. */}
+            {view.dbMode === "query" && (
+              <button
+                type="button"
+                className={targetCount ? "" : "primary"}
+                onClick={() => void previewDatabases()}
+                disabled={view.resolving || isRunning || !selected.length}
+                title="Resolve the filter query and preview the matched databases"
+              >
+                <MultiTargetIcon />
+                {view.resolving ? "Loading…" : "Preview databases"}
+              </button>
+            )}
+            {(view.dbMode === "list" || targetCount > 0) && (
+              <>
+                <button
+                  type="button"
+                  onClick={generateScript}
+                  disabled={isRunning || !targetCount}
+                  title="Build a per-database script and open it in a new tab"
+                >
+                  <CopyIcon />
+                  Generate script
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void startRun("execute")}
+                  disabled={isRunning || !targetCount}
+                  title="Run the query on every selected database"
+                >
+                  <RunIcon />
+                  Execute
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void startRun("results")}
+                  disabled={isRunning || !targetCount}
+                  title="Run a SELECT on every database and aggregate the rows"
+                >
+                  <RunIcon />
+                  Fetch results
+                </button>
+              </>
+            )}
             {isRunning && (
               <button type="button" className="danger" onClick={stop}>
                 <CancelIcon />
@@ -771,6 +794,49 @@ export function MultiTargetPane({ tabId }: MultiTargetPaneProps) {
         onConfirm={() => resolveConfirm(true)}
         onCancel={() => resolveConfirm(false)}
       />
+
+      {/* Matched-databases preview (query mode). Closing it leaves the resolved
+          plan in place, so the run buttons stay available. */}
+      <Modal
+        open={previewOpen}
+        title="Matched databases"
+        onClose={() => setPreviewOpen(false)}
+        width="min(560px, 94vw)"
+      >
+        <p className={styles.muted}>
+          {targetCount} database{targetCount === 1 ? "" : "s"} across{" "}
+          {
+            view.resolved.filter(
+              (r) => selected.includes(r.connectionId) && !r.error,
+            ).length
+          }{" "}
+          server{selected.length === 1 ? "" : "s"} match this filter query.
+        </p>
+        <div className={styles.resolved}>
+          {view.resolved
+            .filter((r) => selected.includes(r.connectionId))
+            .map((r) => (
+              <div key={r.connectionId} className={styles.resolvedServer}>
+                <div className={styles.resolvedHead}>
+                  <strong>{r.server}</strong>
+                  {r.error ? (
+                    <span className={styles.error}>{r.error}</span>
+                  ) : (
+                    <span className={styles.muted}>
+                      {r.databases.length} database
+                      {r.databases.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+                {!r.error && (
+                  <div className={styles.dbNames}>
+                    {r.databases.join(", ") || "—"}
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      </Modal>
     </div>
   );
 }

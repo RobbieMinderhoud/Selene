@@ -8,6 +8,18 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.1] - 2026-06-26
+
+### Changed
+
+- **Run on multiple targets now previews the matched databases in a modal, and
+  gates the run on it.** In filter-query mode the action row shows a single
+  **Preview databases** button; clicking it lists exactly which databases match
+  (per server) in a dialog. Only after previewing do **Generate script**,
+  **Execute**, and **Fetch results** appear — and editing the filter query hides
+  them again until you re-preview, so a run can never target a stale or unseen
+  database set. Picking databases by hand from a list is unchanged.
+
 ## [1.3.0] - 2026-06-25
 
 ### Added
