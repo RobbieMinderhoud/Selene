@@ -31,14 +31,13 @@ interface SettingsModalProps {
   onConnectionsChanged?: () => void;
 }
 
-type Tab = "general" | "export" | "import" | "multiTarget" | "backup";
+type Tab = "general" | "csv" | "multiTarget" | "backup";
 
 const TAB_LABELS: Record<Tab, string> = {
   general: "General",
-  export: "Export",
-  import: "Import",
+  csv: "CSV",
   multiTarget: "Multi-target",
-  backup: "Backup",
+  backup: "Backup & restore",
 };
 
 interface BackupFile {
@@ -261,7 +260,7 @@ export function SettingsModal({
       {/* ── Tab navigation ────────────────────────────────────────────── */}
       <div className={styles.tabList} role="tablist">
         {(
-          ["general", "export", "import", "multiTarget", "backup"] as Tab[]
+          ["general", "csv", "multiTarget", "backup"] as Tab[]
         ).map((tab) => (
           <button
             key={tab}
@@ -472,11 +471,11 @@ export function SettingsModal({
         </div>
       )}
 
-      {/* ── Export tab ────────────────────────────────────────────────── */}
-      {activeTab === "export" && (
-        <div key="export" className={styles.tabPanel} role="tabpanel">
+      {/* ── CSV tab (export + import) ─────────────────────────────────── */}
+      {activeTab === "csv" && (
+        <div key="csv" className={styles.tabPanel} role="tabpanel">
           <section className={styles.section}>
-            <h3 className={styles.sectionLabel}>CSV</h3>
+            <h3 className={styles.sectionLabel}>Export</h3>
             <SettingSelect<CsvDelimiter>
               label="Delimiter"
               help="Field separator written between columns."
@@ -534,14 +533,8 @@ export function SettingsModal({
               onChange={(v) => setSection("export", { bom: v })}
             />
           </section>
-        </div>
-      )}
-
-      {/* ── Import tab ────────────────────────────────────────────────── */}
-      {activeTab === "import" && (
-        <div key="import" className={styles.tabPanel} role="tabpanel">
           <section className={styles.section}>
-            <h3 className={styles.sectionLabel}>CSV</h3>
+            <h3 className={styles.sectionLabel}>Import</h3>
             <SettingSelect<CsvDelimiter>
               label="Delimiter"
               help="Default field separator. You can override it per import in the mapping menu."
@@ -631,27 +624,6 @@ export function SettingsModal({
               }
             />
           </section>
-          <section className={styles.section}>
-            <h3 className={styles.sectionLabel}>Results CSV</h3>
-            <SettingSelect<CsvDelimiter>
-              label="Delimiter"
-              help="Field separator for the combined Save-CSV. Quoting, line ending, and header follow the Export tab."
-              value={s.multiTarget.csvDelimiter}
-              options={[
-                [";", "; (semicolon)"],
-                [",", ", (comma)"],
-                ["\t", "Tab"],
-                ["|", "| (pipe)"],
-              ]}
-              onChange={(v) => setSection("multiTarget", { csvDelimiter: v })}
-            />
-            <SettingToggle
-              label="UTF-8 BOM"
-              help="Prepend a byte-order mark so Excel opens the file without a re-encoding prompt on Windows."
-              value={s.multiTarget.csvBom}
-              onChange={(v) => setSection("multiTarget", { csvBom: v })}
-            />
-          </section>
         </div>
       )}
 
@@ -659,7 +631,7 @@ export function SettingsModal({
       {activeTab === "backup" && (
         <div key="backup" className={styles.tabPanel} role="tabpanel">
           <section className={styles.section}>
-            <h3 className={styles.sectionLabel}>Export & Import</h3>
+            <h3 className={styles.sectionLabel}>Connections &amp; settings</h3>
             <div className={styles.backupRow}>
               <div className={styles.backupRowText}>
                 <span className={styles.backupRowLabel}>Export backup</span>
