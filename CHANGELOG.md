@@ -8,6 +8,23 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.4] - 2026-06-26
+
+### Changed
+
+- **Settings are tidier: CSV options now share one tab, and "Backup" is renamed
+  to "Backup & restore".** The former separate Export and Import tabs — both only
+  CSV format options — are now Export and Import sections under a single **CSV**
+  tab. The Backup tab keeps the same connection-and-settings backup/restore
+  actions but is renamed so it no longer reads like a CSV export/import.
+
+### Removed
+
+- **The separate delimiter and UTF-8 BOM for a multi-target run's combined CSV.**
+  Saving the aggregated results of a "Run on multiple targets" now uses the same
+  delimiter and BOM as the **CSV → Export** settings, so CSV format lives in one
+  place. The defaults were identical, so existing setups are unaffected.
+
 ## [1.3.3] - 2026-06-26
 
 ### Added

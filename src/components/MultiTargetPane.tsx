@@ -936,12 +936,12 @@ function MultiResults({
 
     const s = useSettingsStore.getState();
     const csvOptions: CsvOptions = {
-      delimiter: s.multiTarget.csvDelimiter,
+      delimiter: s.export.delimiter,
       quote: s.export.quoteChar,
       quote_style: s.export.quoteStyle,
       line_ending: s.export.lineEnding,
       include_header: s.export.includeHeader,
-      bom: s.multiTarget.csvBom,
+      bom: s.export.bom,
     };
     const toasts = useToastStore.getState();
     const toastId = toasts.push({
