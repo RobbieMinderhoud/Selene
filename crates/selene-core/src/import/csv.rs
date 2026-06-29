@@ -214,8 +214,7 @@ fn detect_and_open(path: &Path) -> Result<Box<dyn io::Read + Send>, CoreError> {
     };
     let sample = &sample_buf[..sample_len];
 
-    let mut detector =
-        chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
+    let mut detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
     // `last = true` when the whole file fit in the sample buffer.
     detector.feed(sample, sample_len < SAMPLE);
     let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
