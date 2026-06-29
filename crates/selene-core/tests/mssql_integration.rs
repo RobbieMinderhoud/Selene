@@ -1189,6 +1189,44 @@ async fn import_creates_table_and_inserts_typed_rows() {
 
 #[tokio::test]
 #[ignore = "requires Docker; run with --ignored"]
+async fn drop_table_clears_a_conflict_so_reimport_can_recreate() {
+    let mut fixture = start_mssql().await;
+    let conn = fixture.conn.as_mut();
+    let db = fresh_db(conn, "selene_drop_tbl").await;
+
+    let columns = vec![NewColumn {
+        name: "id".into(),
+        sql_type: "INT".into(),
+        nullable: true,
+    }];
+
+    // First create succeeds.
+    conn.create_table(Some(&db), "dbo", "imported", &columns, &CancelToken::new())
+        .await
+        .expect("first create_table");
+
+    // Re-creating the same table fails with SQL Server error 2714 — the signal
+    // the import modal keys on to offer "drop & retry".
+    let err = conn
+        .create_table(Some(&db), "dbo", "imported", &columns, &CancelToken::new())
+        .await
+        .expect_err("recreating an existing table must fail");
+    assert!(
+        err.to_string().contains("2714"),
+        "expected SQL Server error 2714, got: {err}"
+    );
+
+    // Dropping clears the conflict, so the retry can recreate the table.
+    conn.drop_table(Some(&db), "dbo", "imported", &CancelToken::new())
+        .await
+        .expect("drop_table");
+    conn.create_table(Some(&db), "dbo", "imported", &columns, &CancelToken::new())
+        .await
+        .expect("create_table after drop");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
 async fn import_into_existing_table_with_subset_mapping() {
     let mut fixture = start_mssql().await;
     let conn = fixture.conn.as_mut();

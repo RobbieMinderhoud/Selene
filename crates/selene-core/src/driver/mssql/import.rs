@@ -86,6 +86,24 @@ pub(super) async fn create_table(
     run_batch(client, &ddl).await
 }
 
+/// Drop `table`. Every identifier is bracket-quoted. Plain `DROP TABLE` (not
+/// `IF EXISTS`): the import-retry caller only reaches here after a confirmed
+/// "table already exists" failure, so a missing table is itself worth
+/// surfacing rather than silently swallowing.
+pub(super) async fn drop_table(
+    client: &mut TiberiusClient,
+    database: Option<&str>,
+    schema: &str,
+    table: &str,
+    cancel: &CancelToken,
+) -> Result<(), CoreError> {
+    if cancel.is_cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    let ddl = format!("DROP TABLE {}", qualify(database, schema, table));
+    run_batch(client, &ddl).await
+}
+
 /// Run a parameterless statement and drain its (empty) result stream.
 async fn run_batch(client: &mut TiberiusClient, sql: &str) -> Result<(), CoreError> {
     client

@@ -8,7 +8,13 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +27,7 @@ vi.mock("../ipc/commands", () => ({
   importCsvAnalyze: vi.fn(),
   importCsv: vi.fn(),
   columnsList: vi.fn(),
+  tableDrop: vi.fn(),
 }));
 
 // Capture the channel callback (unused by these tests, but keeps the import
@@ -29,7 +36,12 @@ vi.mock("../ipc/channels", () => ({
   createImportChannel: vi.fn(() => ({ __channel: true })),
 }));
 
-import { columnsList, importCsv, importCsvAnalyze } from "../ipc/commands";
+import {
+  columnsList,
+  importCsv,
+  importCsvAnalyze,
+  tableDrop,
+} from "../ipc/commands";
 import type { ColumnInfo, CsvAnalysis } from "../ipc/types";
 import { useImportStore } from "../state/importStore";
 import { CsvImportModal } from "./CsvImportModal";
@@ -37,6 +49,7 @@ import { CsvImportModal } from "./CsvImportModal";
 const mockAnalyze = vi.mocked(importCsvAnalyze);
 const mockImport = vi.mocked(importCsv);
 const mockColumns = vi.mocked(columnsList);
+const mockTableDrop = vi.mocked(tableDrop);
 
 function renderModal(ui: ReactElement) {
   const client = new QueryClient({
@@ -61,6 +74,7 @@ beforeEach(() => {
   mockAnalyze.mockReset();
   mockImport.mockReset();
   mockColumns.mockReset();
+  mockTableDrop.mockReset();
   useImportStore.setState({ request: null });
 });
 
@@ -191,5 +205,97 @@ describe("CsvImportModal — existing table", () => {
       { targetColumn: "id", csvIndex: 0 },
       { targetColumn: "name", csvIndex: 1 },
     ]);
+  });
+});
+
+describe("CsvImportModal — drop & retry on table conflict", () => {
+  it("offers a two-step drop after a 2714 error, then drops and re-imports", async () => {
+    mockAnalyze.mockResolvedValue(analysis);
+    // First import collides with an existing table (SQL Server error 2714);
+    // the retry after the drop succeeds.
+    mockImport
+      .mockRejectedValueOnce({
+        kind: "query",
+        message:
+          "There is already an object named 'imported'. (code 2714, severity 16)",
+      })
+      .mockResolvedValueOnce({ rows_inserted: 1, rows_skipped: 0 });
+    mockTableDrop.mockResolvedValue(undefined);
+
+    useImportStore.getState().requestImport({
+      sessionId: "s1",
+      database: "db",
+      schema: "dbo",
+      mode: "new",
+    });
+    renderModal(<CsvImportModal />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Type for id")).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText("New table name"), {
+      target: { value: "imported" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    // The conflict surfaces a "Drop table & retry" action (step 1).
+    const dropBtn = await screen.findByRole("button", {
+      name: "Drop table & retry",
+    });
+    await userEvent.click(dropBtn);
+
+    // Step 2: an explicit confirm naming the table before anything is dropped.
+    expect(mockTableDrop).not.toHaveBeenCalled();
+    const confirmBtn = await screen.findByRole("button", {
+      name: "Confirm: drop dbo.imported?",
+    });
+    await userEvent.click(confirmBtn);
+
+    // Drop runs with the new-table target, then the import is retried.
+    await waitFor(() => expect(mockTableDrop).toHaveBeenCalledTimes(1));
+    expect(mockTableDrop).toHaveBeenCalledWith("s1", "db", "dbo", "imported");
+    await waitFor(() => expect(mockImport).toHaveBeenCalledTimes(2));
+  });
+
+  it("can back out of the drop at the confirm step", async () => {
+    mockAnalyze.mockResolvedValue(analysis);
+    mockImport.mockRejectedValueOnce({
+      kind: "query",
+      message:
+        "There is already an object named 'imported'. (code 2714, severity 16)",
+    });
+
+    useImportStore.getState().requestImport({
+      sessionId: "s1",
+      database: "db",
+      schema: "dbo",
+      mode: "new",
+    });
+    renderModal(<CsvImportModal />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Type for id")).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText("New table name"), {
+      target: { value: "imported" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Drop table & retry" }),
+    );
+    // Backing out returns to step 1 and drops nothing. Scope to the recovery
+    // group: the modal footer also has a "Cancel".
+    const confirmBtn = await screen.findByRole("button", {
+      name: "Confirm: drop dbo.imported?",
+    });
+    const recover = confirmBtn.parentElement as HTMLElement;
+    await userEvent.click(
+      within(recover).getByRole("button", { name: "Cancel" }),
+    );
+    expect(mockTableDrop).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Drop table & retry" }),
+    ).toBeTruthy();
   });
 });

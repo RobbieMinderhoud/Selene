@@ -225,6 +225,7 @@ pub fn run() {
             // Import
             commands::import::import_csv_analyze,
             commands::import::import_csv,
+            commands::import::table_drop,
             // Filesystem (file-backed tabs + workspace folders)
             commands::fs::file_read,
             commands::fs::file_write,

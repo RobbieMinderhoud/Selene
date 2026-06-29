@@ -178,8 +178,30 @@
 }
 
 .error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
   color: var(--danger);
   font-size: var(--fs-sm);
+}
+
+/* Recovery actions under a failed import (e.g. "drop existing table & retry").
+   Eased in so it reads as an offered choice rather than a layout jump. */
+.recover {
+  display: flex;
+  gap: var(--sp-2);
+  animation: recover-in var(--dur-2) var(--ease-out);
+}
+
+@keyframes recover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .loading {
