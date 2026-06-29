@@ -270,6 +270,23 @@ pub trait Connection: Send {
         ))
     }
 
+    /// Drop the table identified by `database`/`schema`/`table`. Drivers must
+    /// bracket/quote every identifier (the names come from user input). Used by
+    /// the import flow's "replace existing" recovery: after an explicit,
+    /// confirmed retry the caller drops the half-created table before
+    /// re-running [`create_table`](Self::create_table).
+    async fn drop_table(
+        &mut self,
+        _database: Option<&str>,
+        _schema: &str,
+        _table: &str,
+        _cancel: &CancelToken,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "drop_table is not supported by this driver".into(),
+        ))
+    }
+
     /// Insert rows pulled from `source` into `target` using **bound
     /// parameters** (never spliced values). When `atomic`, the whole import runs
     /// in a transaction and any error rolls it back; otherwise each batch commits

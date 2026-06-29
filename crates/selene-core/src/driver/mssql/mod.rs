@@ -431,6 +431,16 @@ impl Connection for MssqlConnection {
         import::create_table(&mut self.client, database, schema, table, columns, cancel).await
     }
 
+    async fn drop_table(
+        &mut self,
+        database: Option<&str>,
+        schema: &str,
+        table: &str,
+        cancel: &CancelToken,
+    ) -> Result<(), CoreError> {
+        import::drop_table(&mut self.client, database, schema, table, cancel).await
+    }
+
     async fn import_rows(
         &mut self,
         target: &ImportTarget,

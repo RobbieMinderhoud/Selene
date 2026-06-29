@@ -8,6 +8,24 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.6] - 2026-06-29
+
+### Added
+
+- **Re-import a CSV as a new table after a failed attempt, without leaving the
+  app.** When importing a CSV as a new table fails after the table was already
+  created, retrying no longer dead-ends on _"There is already an object
+  named…"_. The import dialog now offers **Drop table & retry** — a two-step
+  confirm that names the table before it drops it — then re-runs the import.
+
+### Fixed
+
+- **CSV files that aren't UTF-8 now import correctly.** Files exported from
+  Excel on Windows (ISO-8859-1 / Windows-1252) used to fail the moment a
+  special character like "é" appeared. Selene now detects the file's encoding
+  and transcodes it to UTF-8 automatically — for both the preview/mapping step
+  and the import itself.
+
 ## [1.3.5] - 2026-06-29
 
 ### Added

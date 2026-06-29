@@ -393,6 +393,20 @@ export function importCsv(
   });
 }
 
+/**
+ * `table_drop` -> drop a table. Backs the import modal's "replace existing"
+ * recovery (drop then retry an *import as new table* that failed because the
+ * table already existed). Refused on a read-only connection.
+ */
+export function tableDrop(
+  sessionId: string,
+  database: string | null,
+  schema: string,
+  table: string,
+): Promise<void> {
+  return invoke("table_drop", { sessionId, database, schema, table });
+}
+
 // --- Filesystem (file-backed tabs + workspace folders) --------------------
 
 /** `file_read` -> a text file's contents (UTF-8). */

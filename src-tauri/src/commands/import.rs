@@ -213,6 +213,39 @@ pub async fn import_csv(
     })
 }
 
+/// Drop a table, backing the import modal's "replace existing" recovery: when
+/// an *import as new table* fails because the table already exists (SQL Server
+/// error 2714), the user can explicitly confirm dropping it and retry.
+///
+/// Refused on a read-only connection — this is destructive DDL and, like
+/// [`import_csv`], does not pass through the SQL guard.
+#[tauri::command]
+pub async fn table_drop(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: Option<String>,
+    schema: String,
+    table: String,
+) -> Result<(), IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    if session.read_only {
+        return Err(IpcError::new(
+            "read_only",
+            "this connection is read-only; dropping tables is disabled",
+        ));
+    }
+    let cancel = CancelToken::new();
+    session
+        .conn
+        .drop_table(database.as_deref(), &schema, &table, &cancel)
+        .await?;
+    tracing::info!(%session_id, %schema, %table, "table dropped");
+    Ok(())
+}
+
 /// Resolve the destination columns + per-column logical types, creating the
 /// table first when importing into a new one.
 async fn prepare_target(

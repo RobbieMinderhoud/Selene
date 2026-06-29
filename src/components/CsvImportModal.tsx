@@ -14,7 +14,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { columnsList, importCsv, importCsvAnalyze } from "../ipc/commands";
+import {
+  columnsList,
+  importCsv,
+  importCsvAnalyze,
+  tableDrop,
+} from "../ipc/commands";
 import { createImportChannel } from "../ipc/channels";
 import type {
   ColumnInfo,
@@ -75,6 +80,24 @@ interface NewColRow {
   include: boolean;
 }
 
+/** The table an *import as new table* collided with — the drop+retry target. */
+interface TableConflict {
+  database: string | null;
+  schema: string;
+  table: string;
+}
+
+/**
+ * Did an *import as new table* fail because the table already exists? SQL Server
+ * raises error 2714 ("There is already an object named …") when CREATE TABLE
+ * targets an existing name; the code is forwarded verbatim in the IPC message.
+ */
+function isTableExistsError(message: string): boolean {
+  return (
+    /\bcode 2714\b/.test(message) || /already an object named/i.test(message)
+  );
+}
+
 export function CsvImportModal() {
   const request = useImportStore((s) => s.request);
   const closeImport = useImportStore((s) => s.closeImport);
@@ -86,6 +109,10 @@ export function CsvImportModal() {
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when a new-table import collided with an existing table; drives the
+  // two-step "drop & retry" recovery shown under the error.
+  const [conflict, setConflict] = useState<TableConflict | null>(null);
+  const [confirmDrop, setConfirmDrop] = useState(false);
 
   // Parse options (re-analyse on change); seeded from Settings → Import.
   const [delimiter, setDelimiter] = useState<string>(",");
@@ -113,6 +140,8 @@ export function CsvImportModal() {
     setAnalysis(null);
     setExistingCols(null);
     setError(null);
+    setConflict(null);
+    setConfirmDrop(false);
     setBusy(false);
     setImporting(false);
     setTableName("");
@@ -323,6 +352,8 @@ export function CsvImportModal() {
 
     setImporting(true);
     setError(null);
+    setConflict(null);
+    setConfirmDrop(false);
     try {
       const summary = await importCsv(
         request.sessionId,
@@ -370,6 +401,53 @@ export function CsvImportModal() {
       toasts.update(toastId, {
         kind: "error",
         message: "Import failed",
+        detail: ipc.message,
+        sticky: false,
+      });
+      setTimeout(() => toasts.requestDismiss(toastId), 6000);
+      setError(ipc.message);
+      setImporting(false);
+      // A new-table import that collided with an existing table can be retried
+      // after dropping it — offer that as an explicit, confirmed recovery.
+      if (target.kind === "new" && isTableExistsError(ipc.message)) {
+        setConflict({
+          database: target.database,
+          schema: target.schema,
+          table: target.table,
+        });
+      }
+    }
+  }
+
+  /** Drop the collided table (after the two-step confirm) and re-run the import. */
+  async function dropAndRetry() {
+    if (!request || !conflict) return;
+    setConfirmDrop(false);
+    setImporting(true);
+    setError(null);
+
+    const toasts = useToastStore.getState();
+    const toastId = toasts.push({
+      kind: "info",
+      message: `Dropping ${conflict.schema}.${conflict.table}…`,
+      sticky: true,
+    });
+    try {
+      await tableDrop(
+        request.sessionId,
+        conflict.database,
+        conflict.schema,
+        conflict.table,
+      );
+      toasts.requestDismiss(toastId);
+      setConflict(null);
+      setImporting(false);
+      await doImport();
+    } catch (e) {
+      const ipc = asIpcError(e);
+      toasts.update(toastId, {
+        kind: "error",
+        message: "Drop failed",
         detail: ipc.message,
         sticky: false,
       });
@@ -512,7 +590,33 @@ export function CsvImportModal() {
             <span className="spinner" aria-hidden /> Analysing CSV…
           </div>
         )}
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <div className={styles.error}>
+            <span>{error}</span>
+            {conflict && !importing && (
+              <div className={styles.recover}>
+                {confirmDrop ? (
+                  <>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void dropAndRetry()}
+                    >
+                      Confirm: drop {conflict.schema}.{conflict.table}?
+                    </button>
+                    <button type="button" onClick={() => setConfirmDrop(false)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setConfirmDrop(true)}>
+                    Drop table &amp; retry
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {analysis && !busy && request?.mode === "new" && (
           <>
