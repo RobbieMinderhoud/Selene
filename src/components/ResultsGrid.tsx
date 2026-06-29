@@ -329,13 +329,16 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
         label: `Copy (${COPY_FORMAT_LABEL[copyFormat]})`,
         onSelect: () => doCopy(copyFormat),
       },
-      { label: "Copy as tab-separated", onSelect: () => doCopy("tab") },
       {
-        label: "Copy as comma-separated (CSV)",
-        onSelect: () => doCopy("comma"),
+        label: "Copy as",
+        onSelect: () => {},
+        children: [
+          { label: "Tab-separated", onSelect: () => doCopy("tab") },
+          { label: "Comma-separated (CSV)", onSelect: () => doCopy("comma") },
+          { label: "Markdown", onSelect: () => doCopy("markdown") },
+          { label: "HTML", onSelect: () => doCopy("html") },
+        ],
       },
-      { label: "Copy as Markdown", onSelect: () => doCopy("markdown") },
-      { label: "Copy as HTML", onSelect: () => doCopy("html") },
     ],
     [copyFormat, doCopy],
   );
