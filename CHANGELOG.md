@@ -8,6 +8,21 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.5] - 2026-06-29
+
+### Added
+
+- **Copy query results in the format you need — and paste cleanly into Excel.**
+  Copying selected cells (or a whole result set) now produces **tab-separated**
+  text by default, so it pastes into proper spreadsheet columns instead of
+  landing in a single comma-joined cell. Choose the default format — Tab, Comma
+  (CSV), Markdown, or HTML — under **Settings → Results → "Copy format"**, or
+  right-click the grid and pick **Copy as ›** for a one-off. A new **"Include
+  headers when copying"** toggle prepends the column-name row (HTML copies paste
+  as a real table into Excel/Word).
+- **Select the whole result set with Cmd/Ctrl+A.** Press it with the grid
+  focused to select every cell, then copy in one go.
+
 ## [1.3.4] - 2026-06-26
 
 ### Changed

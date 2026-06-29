@@ -35,8 +35,18 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { CellValue, Column } from "../ipc/types";
 import { formatCell } from "../lib/cellFormat";
+import {
+  buildClipboard,
+  copyCellText,
+  writeClipboard,
+} from "../lib/gridClipboard";
 import type { ResultSet } from "../state/editorStore";
-import { useSettingsStore, DENSITY_TO_PX } from "../state/settingsStore";
+import {
+  useSettingsStore,
+  DENSITY_TO_PX,
+  type CopyFormat,
+} from "../state/settingsStore";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import styles from "./ResultsGrid.module.css";
 
 interface ResultsGridProps {
@@ -64,6 +74,14 @@ const CHAR_PX = 7.6;
 // is never flush against max-scroll. The strip is empty grid space (like the
 // trailing space in a spreadsheet).
 const TRAILING_PAD = 64;
+
+/** Human labels for the copy formats, used in the right-click menu. */
+const COPY_FORMAT_LABEL: Record<CopyFormat, string> = {
+  tab: "Tab-separated",
+  comma: "Comma-separated (CSV)",
+  markdown: "Markdown",
+  html: "HTML",
+};
 
 const columnHelper = createColumnHelper<GridRow>();
 
@@ -114,12 +132,22 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
 
   const density = useSettingsStore((s) => s.results.density);
   const nullDisplay = useSettingsStore((s) => s.results.nullDisplay);
+  const copyFormat = useSettingsStore((s) => s.results.copyFormat);
+  const copyIncludeHeaders = useSettingsStore(
+    (s) => s.results.copyIncludeHeaders,
+  );
   const rowHeight = DENSITY_TO_PX[density];
 
   const [selectedCells, setSelectedCells] = useState<ReadonlySet<string>>(
     new Set(),
   );
+  // Whole-result selection (Cmd/Ctrl+A). Kept as a flag rather than a
+  // materialized set so it stays cheap on 50k-row results.
+  const [selectAll, setSelectAll] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  // Right-click "Copy as …" menu; `menu` is retained while it animates closed.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorRef = useRef<{ row: number; col: number } | null>(null);
   // Movable end of the keyboard selection (anchor is the fixed end).
@@ -131,6 +159,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
   // Clear selection when the result set changes (new query).
   useEffect(() => {
     setSelectedCells(new Set());
+    setSelectAll(false);
     anchorRef.current = null;
     cursorRef.current = null;
   }, [resultSet]);
@@ -147,6 +176,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
     (rowIdx: number, colIdx: number, e: React.MouseEvent) => {
       e.stopPropagation();
       scrollRef.current?.focus({ preventScroll: true });
+      setSelectAll(false);
       const key = cellKey(rowIdx, colIdx);
       if (e.metaKey || e.ctrlKey) {
         setSelectedCells((prev) => {
@@ -187,6 +217,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
     (rowIdx: number, e: React.MouseEvent) => {
       e.stopPropagation();
       scrollRef.current?.focus({ preventScroll: true });
+      setSelectAll(false);
       const next = new Set<string>();
       if (e.shiftKey && anchorRef.current) {
         const minRow = Math.min(anchorRef.current.row, rowIdx);
@@ -209,37 +240,132 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
     [columns.length],
   );
 
+  // Copy the current selection (or the whole result set, when select-all is on)
+  // to the clipboard in `format`, then flash the cells. Builds a rectangle from
+  // the selected rows × columns; cells inside that rectangle but not selected
+  // come out empty (matters only for sparse Cmd/Ctrl+click selections).
+  const doCopy = useCallback(
+    (format: CopyFormat) => {
+      let rowIdxs: number[];
+      let colIdxs: number[];
+      if (selectAll) {
+        if (rows.length === 0 || columns.length === 0) return;
+        rowIdxs = Array.from({ length: rows.length }, (_, i) => i);
+        colIdxs = Array.from({ length: columns.length }, (_, i) => i);
+      } else {
+        if (selectedCells.size === 0) return;
+        const rowSet = new Set<number>();
+        const colSet = new Set<number>();
+        for (const k of selectedCells) {
+          const [r, c] = k.split(":").map(Number);
+          rowSet.add(r);
+          colSet.add(c);
+        }
+        rowIdxs = [...rowSet].sort((a, b) => a - b);
+        colIdxs = [...colSet].sort((a, b) => a - b);
+      }
+
+      const headers = colIdxs.map((c) => columns[c]?.name ?? "");
+      const matrix = rowIdxs.map((r) =>
+        colIdxs.map((c) =>
+          selectAll || selectedCells.has(cellKey(r, c))
+            ? copyCellText(rows[r]?.[c])
+            : "",
+        ),
+      );
+      void writeClipboard(
+        buildClipboard(format, headers, matrix, copyIncludeHeaders),
+      );
+
+      // Flash feedback: pulse the selected cells bright then settle.
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+      setIsCopied(true);
+      flashTimeoutRef.current = setTimeout(() => setIsCopied(false), 500);
+    },
+    [selectAll, selectedCells, rows, columns, copyIncludeHeaders],
+  );
+
+  const handleCellContextMenu = useCallback(
+    (rowIdx: number, colIdx: number, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      scrollRef.current?.focus({ preventScroll: true });
+      // Right-clicking outside the current selection targets just that cell
+      // (spreadsheet behaviour); an existing selection is left intact.
+      if (!selectAll && !selectedCells.has(cellKey(rowIdx, colIdx))) {
+        setSelectedCells(new Set([cellKey(rowIdx, colIdx)]));
+        anchorRef.current = { row: rowIdx, col: colIdx };
+        cursorRef.current = { row: rowIdx, col: colIdx };
+      }
+      setMenu({ x: e.clientX, y: e.clientY });
+      setMenuOpen(true);
+    },
+    [selectAll, selectedCells],
+  );
+
+  const handleRowNumContextMenu = useCallback(
+    (rowIdx: number, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      scrollRef.current?.focus({ preventScroll: true });
+      // Right-clicking a row number selects the whole row (like a left-click),
+      // unless that row is already part of the current selection.
+      if (!selectAll && !selectedCells.has(cellKey(rowIdx, 0))) {
+        const next = new Set<string>();
+        for (let c = 0; c < columns.length; c++) next.add(cellKey(rowIdx, c));
+        setSelectedCells(next);
+        anchorRef.current = { row: rowIdx, col: 0 };
+        cursorRef.current = { row: rowIdx, col: columns.length - 1 };
+      }
+      setMenu({ x: e.clientX, y: e.clientY });
+      setMenuOpen(true);
+    },
+    [selectAll, selectedCells, columns.length],
+  );
+
+  const menuItems = useMemo<ContextMenuItem[]>(
+    () => [
+      {
+        label: `Copy (${COPY_FORMAT_LABEL[copyFormat]})`,
+        onSelect: () => doCopy(copyFormat),
+      },
+      {
+        label: "Copy as",
+        onSelect: () => {},
+        children: [
+          { label: "Tab-separated", onSelect: () => doCopy("tab") },
+          { label: "Comma-separated (CSV)", onSelect: () => doCopy("comma") },
+          { label: "Markdown", onSelect: () => doCopy("markdown") },
+          { label: "HTML", onSelect: () => doCopy("html") },
+        ],
+      },
+    ],
+    [copyFormat, doCopy],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "c" && selectedCells.size > 0) {
+      // Cmd/Ctrl+A: select the whole result set.
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        (e.key === "a" || e.key === "A") &&
+        rows.length > 0
+      ) {
         e.preventDefault();
-        const sorted = [...selectedCells]
-          .map((k) => {
-            const [r, c] = k.split(":").map(Number);
-            return { r, c };
-          })
-          .sort((a, b) => (a.r !== b.r ? a.r - b.r : a.c - b.c));
-        const byRow = new Map<number, number[]>();
-        for (const { r, c } of sorted) {
-          const cols = byRow.get(r) ?? [];
-          cols.push(c);
-          byRow.set(r, cols);
-        }
-        const rowTexts: string[] = [];
-        for (const [r, cols] of [...byRow].sort((a, b) => a[0] - b[0])) {
-          const cellTexts = cols.map((c) => {
-            const val = rows[r]?.[c];
-            if (!val) return "";
-            const f = formatCell(val);
-            return f.isNull ? "" : f.text;
-          });
-          rowTexts.push(cellTexts.join(", "));
-        }
-        navigator.clipboard.writeText(rowTexts.join("\n"));
-        // Flash feedback: pulse the selected cells bright then settle.
-        if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-        setIsCopied(true);
-        flashTimeoutRef.current = setTimeout(() => setIsCopied(false), 500);
+        setSelectAll(true);
+        setSelectedCells(new Set());
+        anchorRef.current = null;
+        cursorRef.current = null;
+        return;
+      }
+
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.key === "c" &&
+        (selectAll || selectedCells.size > 0)
+      ) {
+        e.preventDefault();
+        doCopy(copyFormat);
         return;
       }
 
@@ -255,6 +381,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
         const anchor = anchorRef.current;
         if (!cursor || !anchor) return;
         e.preventDefault();
+        setSelectAll(false);
 
         let { row: newRow, col: newCol } = cursor;
         if (e.key === "ArrowUp") newRow = Math.max(0, newRow - 1);
@@ -280,7 +407,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
         vColScrollRef.current?.(newCol);
       }
     },
-    [selectedCells, rows, columns.length],
+    [selectAll, selectedCells, rows, columns.length, doCopy, copyFormat],
   );
 
   // Column defs recomputed when columns change or more rows stream in (rev:
@@ -366,6 +493,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
       onKeyDown={handleKeyDown}
       onClick={() => {
         setSelectedCells(new Set());
+        setSelectAll(false);
         anchorRef.current = null;
       }}
     >
@@ -436,6 +564,7 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
                 className={`${styles.cell} ${styles.rowNum}`}
                 style={{ width: ROW_NUM_WIDTH }}
                 onClick={(e) => handleRowNumClick(vr.index, e)}
+                onContextMenu={(e) => handleRowNumContextMenu(vr.index, e)}
               >
                 {vr.index + 1}
               </div>
@@ -447,9 +576,8 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
                 // Apply user-configured null display; keep original text in
                 // the tooltip so the true "NULL" is always discoverable.
                 const displayText = f.isNull ? nullDisplay : f.text;
-                const isSelected = selectedCells.has(
-                  cellKey(vr.index, vc.index),
-                );
+                const isSelected =
+                  selectAll || selectedCells.has(cellKey(vr.index, vc.index));
                 return (
                   <div
                     key={vc.index}
@@ -464,6 +592,9 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
                     }}
                     title={f.text}
                     onClick={(e) => handleCellClick(vr.index, vc.index, e)}
+                    onContextMenu={(e) =>
+                      handleCellContextMenu(vr.index, vc.index, e)
+                    }
                   >
                     {displayText}
                   </div>
@@ -473,6 +604,13 @@ export function ResultsGrid({ resultSet, rev }: ResultsGridProps) {
           );
         })}
       </div>
+      <ContextMenu
+        open={menuOpen}
+        x={menu?.x ?? 0}
+        y={menu?.y ?? 0}
+        items={menuItems}
+        onClose={() => setMenuOpen(false)}
+      />
     </div>
   );
 }

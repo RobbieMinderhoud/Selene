@@ -5,6 +5,8 @@ import { create } from "zustand";
 export type ReduceMotion = "system" | "on" | "off";
 export type RowDensity = "compact" | "normal" | "comfortable";
 export type NullDisplay = "NULL" | "(null)" | "·" | "";
+/** Clipboard format used when copying selected cells from the results grid. */
+export type CopyFormat = "tab" | "comma" | "markdown" | "html";
 
 export type CsvDelimiter = ";" | "," | "\t" | "|";
 export type CsvQuoteChar = '"' | "'";
@@ -31,6 +33,11 @@ export interface Settings {
     defaultRowLimit: number;
     density: RowDensity;
     nullDisplay: NullDisplay;
+    /** Clipboard format for Cmd/Ctrl+C; right-click offers one-off overrides. */
+    copyFormat: CopyFormat;
+    /** Prepend the column-name row when copying (markdown always includes it,
+     *  since the format requires a header). */
+    copyIncludeHeaders: boolean;
   };
   /**
    * Last-used state of the editor find/replace overlay toggles. Persisted so the
@@ -105,7 +112,13 @@ const DEFAULTS: Settings = {
     bracketPairs: true,
     upperCaseKeywords: true,
   },
-  results: { defaultRowLimit: 50_000, density: "normal", nullDisplay: "NULL" },
+  results: {
+    defaultRowLimit: 50_000,
+    density: "normal",
+    nullDisplay: "NULL",
+    copyFormat: "tab",
+    copyIncludeHeaders: false,
+  },
   search: { caseSensitive: false, regexp: false, wholeWord: false },
   query: {
     confirmOnReadWrite: false,

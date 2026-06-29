@@ -3,6 +3,7 @@ import { Modal } from "./Modal";
 import { useThemeStore, type ThemeMode } from "../state/themeStore";
 import {
   useSettingsStore,
+  type CopyFormat,
   type CsvDelimiter,
   type CsvLineEnding,
   type CsvQuoteChar,
@@ -410,6 +411,24 @@ export function SettingsModal({
                 ["", "(blank)"],
               ]}
               onChange={(v) => setSection("results", { nullDisplay: v })}
+            />
+            <SettingSelect<CopyFormat>
+              label="Copy format"
+              help="Used when copying cells with Cmd/Ctrl+C. Right-click the grid to copy as a different format once."
+              value={s.results.copyFormat}
+              options={[
+                ["tab", "Tab-separated (Excel / Sheets)"],
+                ["comma", "Comma-separated (CSV)"],
+                ["markdown", "Markdown table"],
+                ["html", "HTML table"],
+              ]}
+              onChange={(v) => setSection("results", { copyFormat: v })}
+            />
+            <SettingToggle
+              label="Include headers when copying"
+              help="Prepend the column-name row. (Markdown always includes it.)"
+              value={s.results.copyIncludeHeaders}
+              onChange={(v) => setSection("results", { copyIncludeHeaders: v })}
             />
           </section>
 
