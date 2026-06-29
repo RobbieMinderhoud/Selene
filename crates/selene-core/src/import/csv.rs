@@ -4,10 +4,12 @@
 //!
 //! A leading UTF-8 BOM (common in Excel-exported CSVs, especially on Windows) is
 //! stripped before parsing so the first header/field is never polluted with the
-//! `\u{FEFF}` marker.
+//! `\u{FEFF}` marker. Non-UTF-8 files (e.g. ISO-8859-1 / Windows-1252 from
+//! Excel on Windows) are detected with `chardetng` and transcoded to UTF-8
+//! in memory via `encoding_rs` before being passed to the CSV reader.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Cursor, Read};
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -31,7 +33,7 @@ pub struct DestColumn {
 /// Streams typed rows from a CSV file in destination-column order, ready to be
 /// pulled by a driver's import path.
 pub struct CsvRowSource {
-    reader: csv::Reader<BufReader<File>>,
+    reader: csv::Reader<Box<dyn io::Read + Send>>,
     dest: Vec<DestColumn>,
     empty_as_null: bool,
     atomic: bool,
@@ -181,15 +183,10 @@ pub(super) fn analyze(
 }
 
 /// Read up to `limit` raw lines from `path` (BOM stripped, line terminators
-/// dropped), for a verbatim file preview.
+/// dropped, encoding-corrected), for a verbatim file preview.
 fn read_raw_preview(path: &Path, limit: usize) -> Result<Vec<String>, CoreError> {
-    let mut buf = BufReader::new(File::open(path).map_err(io_err)?);
-    {
-        let first = buf.fill_buf().map_err(io_err)?;
-        if first.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            buf.consume(3);
-        }
-    }
+    let inner = detect_and_open(path)?;
+    let buf = BufReader::new(inner);
     let mut out = Vec::with_capacity(limit);
     for line in buf.lines() {
         if out.len() >= limit {
@@ -200,27 +197,66 @@ fn read_raw_preview(path: &Path, limit: usize) -> Result<Vec<String>, CoreError>
     Ok(out)
 }
 
-/// Build a CSV reader from `opts`, stripping a leading UTF-8 BOM. `flexible`
-/// tolerates ragged rows (missing trailing fields map to empty / `NULL`).
+/// Open `path`, auto-detect its character encoding, and return a `Read`er
+/// positioned at the start of the content (BOM consumed, non-UTF-8 transcoded).
+///
+/// * UTF-8 / ASCII → reopen as `BufReader<File>`, strip the 3-byte UTF-8 BOM
+///   if present. No extra allocation.
+/// * Any other encoding → read the whole file, decode to UTF-8 with
+///   `encoding_rs`, strip any BOM from the decoded text, return a
+///   `Cursor<Vec<u8>>` over the UTF-8 bytes.
+fn detect_and_open(path: &Path) -> Result<Box<dyn io::Read + Send>, CoreError> {
+    const SAMPLE: usize = 8 * 1024;
+    let mut sample_buf = vec![0u8; SAMPLE];
+    let sample_len = {
+        let mut f = File::open(path).map_err(io_err)?;
+        f.read(&mut sample_buf).map_err(io_err)?
+    };
+    let sample = &sample_buf[..sample_len];
+
+    let mut detector =
+        chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
+    // `last = true` when the whole file fit in the sample buffer.
+    detector.feed(sample, sample_len < SAMPLE);
+    let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
+
+    if encoding == encoding_rs::UTF_8 {
+        let mut buf = BufReader::new(File::open(path).map_err(io_err)?);
+        {
+            let peeked = buf.fill_buf().map_err(io_err)?;
+            if peeked.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                buf.consume(3);
+            }
+        }
+        return Ok(Box::new(buf));
+    }
+
+    let raw = std::fs::read(path).map_err(io_err)?;
+    let (cow, _enc, had_errors) = encoding.decode(&raw);
+    if had_errors {
+        return Err(CoreError::Import(format!(
+            "CSV file contains bytes that cannot be decoded as {} (detected encoding)",
+            encoding.name()
+        )));
+    }
+    let text = cow.strip_prefix('\u{FEFF}').unwrap_or(&cow);
+    Ok(Box::new(Cursor::new(text.as_bytes().to_vec())))
+}
+
+/// Build a CSV reader from `opts`. Encoding detection and BOM stripping are
+/// handled by [`detect_and_open`]. `flexible` tolerates ragged rows.
 fn build_reader(
     path: &Path,
     opts: &CsvImportOptions,
-) -> Result<csv::Reader<BufReader<File>>, CoreError> {
-    let mut buf = BufReader::new(File::open(path).map_err(io_err)?);
-    {
-        // Peek the buffered bytes; consume the 3-byte BOM only if present.
-        let first = buf.fill_buf().map_err(io_err)?;
-        if first.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            buf.consume(3);
-        }
-    }
+) -> Result<csv::Reader<Box<dyn io::Read + Send>>, CoreError> {
+    let reader = detect_and_open(path)?;
     Ok(csv::ReaderBuilder::new()
         .delimiter(opts.delimiter)
         .quote(opts.quote)
         .quoting(opts.quoting)
         .has_headers(opts.has_header)
         .flexible(true)
-        .from_reader(buf))
+        .from_reader(reader))
 }
 
 fn csv_err(e: csv::Error) -> CoreError {
