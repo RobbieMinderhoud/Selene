@@ -12,7 +12,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { sql, MSSQL } from "@codemirror/lang-sql";
+import { sql } from "@codemirror/lang-sql";
 import type { CompletionSource } from "@codemirror/autocomplete";
 import { EditorView, keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
@@ -20,6 +20,8 @@ import { indentUnit } from "@codemirror/language";
 import { search } from "@codemirror/search";
 import { githubDark, githubLight } from "@uiw/codemirror-theme-github";
 
+import type { DriverId } from "../ipc/types";
+import { dialectFor } from "../lib/sqlDialect";
 import { selectSql, useEditorStore } from "../state/editorStore";
 import { useThemeStore } from "../state/themeStore";
 import { useSettingsStore } from "../state/settingsStore";
@@ -38,6 +40,13 @@ interface SqlEditorProps {
    */
   schemaSource?: CompletionSource;
   /**
+   * The active connection's driver, selecting the lang-sql dialect (keyword set
+   * + highlighting). `undefined` when the tab has no live session — the editor
+   * falls back to `StandardSQL`. Switching a tab's connection re-derives the
+   * dialect via the extensions memo below.
+   */
+  driver?: DriverId;
+  /**
    * Populated with the live `EditorView` on creation so the parent can drive it
    * (e.g. return focus after a Run/guard action — see EditorPane). Focusing via
    * `view.focus()` is scroll-safe; a raw DOM `.focus()` scroll-jumps on the
@@ -50,6 +59,7 @@ export function SqlEditor({
   tabId,
   onRun,
   schemaSource,
+  driver,
   viewRef,
 }: SqlEditorProps) {
   const value = useEditorStore((s) => selectSql(s, tabId));
@@ -98,8 +108,9 @@ export function SqlEditor({
     [themeMode],
   );
 
-  // Extensions rebuilt when run binding or editor settings change.
+  // Extensions rebuilt when run binding, editor settings, or the driver change.
   const extensions = useMemo(() => {
+    const dialect = dialectFor(driver);
     const editorKeymap = Prec.highest(
       keymap.of([
         {
@@ -136,7 +147,7 @@ export function SqlEditor({
       ]),
     );
     const exts = [
-      sql({ dialect: MSSQL, upperCaseKeywords: editor.upperCaseKeywords }),
+      sql({ dialect, upperCaseKeywords: editor.upperCaseKeywords }),
       editorKeymap,
       // Provides the search state the overlay drives via `setSearchQuery`; its
       // own panel is never opened, so only the query/highlight machinery is used.
@@ -165,13 +176,14 @@ export function SqlEditor({
     // autocomplete facet (the same channel lang-sql uses for its keyword + schema
     // sources), so the single basicSetup `autocompletion()` plugin reads both.
     if (schemaSource) {
-      exts.push(MSSQL.language.data.of({ autocomplete: schemaSource }));
+      exts.push(dialect.language.data.of({ autocomplete: schemaSource }));
     }
     if (editor.wordWrap) exts.push(EditorView.lineWrapping);
     return exts;
   }, [
     onRun,
     schemaSource,
+    driver,
     editor.upperCaseKeywords,
     editor.fontSize,
     editor.tabSize,

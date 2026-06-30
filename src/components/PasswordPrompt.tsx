@@ -97,7 +97,8 @@ export function PasswordPrompt() {
       >
         <p className={styles.intro}>
           Enter the password for <strong>{pending?.spec.name}</strong>
-          {pending?.spec.auth.username ? (
+          {pending?.spec.auth.method === "sql_login" &&
+          pending.spec.auth.username ? (
             <>
               {" "}
               (<span className={styles.user}>{pending.spec.auth.username}</span>

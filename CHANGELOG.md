@@ -8,6 +8,18 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [Unreleased]
+
+### Added
+
+- **Connect to PostgreSQL, MySQL, and SQLite, not just SQL Server.** The
+  connection dialog now starts with a **Driver** picker; choose the backend and
+  the form adapts — PostgreSQL and MySQL show host/port (defaulting to 5432 /
+  3306) without the SQL-Server-only named-instance field, while SQLite asks for
+  a single **Database file** (with a **Browse…** button) and no host, port, or
+  login. The editor highlights and auto-completes keywords for whichever backend
+  the tab is connected to.
+
 ## [1.3.7] - 2026-06-30
 
 ### Added

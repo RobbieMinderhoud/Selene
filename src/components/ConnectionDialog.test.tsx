@@ -22,6 +22,12 @@ vi.mock("../state/toastStore", () => ({
   toastSuccess: vi.fn(),
 }));
 
+// The SQLite "Browse…" button dynamically imports the Tauri dialog plugin.
+const mockOpen = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (...args: unknown[]) => mockOpen(...args),
+}));
+
 import { connectionSave, connectionTest } from "../ipc/commands";
 import type { ConnectionSpec } from "../ipc/types";
 import { ConnectionDialog } from "./ConnectionDialog";
@@ -49,6 +55,7 @@ function renderDialog(
 beforeEach(() => {
   mockSave.mockReset();
   mockTest.mockReset();
+  mockOpen.mockReset();
   mockSave.mockResolvedValue({} as ConnectionSpec);
   mockTest.mockResolvedValue({ server_version: "16.0", elapsed_ms: 5 });
 });
@@ -240,5 +247,136 @@ describe("ConnectionDialog", () => {
     expect(props.onClose).toHaveBeenCalledTimes(1);
     expect(mockSave).not.toHaveBeenCalled();
     expect(mockTest).not.toHaveBeenCalled();
+  });
+
+  describe("driver selection", () => {
+    it("defaults to SQL Server and shows the named-instance field", () => {
+      renderDialog();
+      const driver = screen.getByLabelText("Driver") as HTMLSelectElement;
+      expect(driver.value).toBe("mssql");
+      expect(screen.getByLabelText(/^Instance/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Port")).toHaveAttribute(
+        "placeholder",
+        "1433",
+      );
+    });
+
+    it("hides the named-instance field and updates the port placeholder for PostgreSQL", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "postgres");
+
+      expect(screen.queryByLabelText(/^Instance/)).not.toBeInTheDocument();
+      // Host/port/username are still present for a network driver.
+      expect(screen.getByLabelText("Host")).toBeInTheDocument();
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+      expect(screen.getByLabelText("Port")).toHaveAttribute(
+        "placeholder",
+        "5432",
+      );
+    });
+
+    it("uses the MySQL default port placeholder and hides the instance field", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "mysql");
+
+      expect(screen.queryByLabelText(/^Instance/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Port")).toHaveAttribute(
+        "placeholder",
+        "3306",
+      );
+    });
+
+    it("shows a Database-file field with Browse for SQLite and hides host/port/username/trust-cert", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "sqlite");
+
+      expect(screen.getByLabelText("Database file")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Browse…" }),
+      ).toBeInTheDocument();
+
+      // Network-only fields are gone.
+      expect(screen.queryByLabelText("Host")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Port")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("checkbox", { name: /Trust server certificate/ }),
+      ).not.toBeInTheDocument();
+      // Read-only stays available.
+      expect(
+        screen.getByRole("checkbox", { name: /Read-only/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("Browse… sets the database file path from the Tauri dialog", async () => {
+      const user = userEvent.setup();
+      mockOpen.mockResolvedValueOnce("/tmp/app.sqlite");
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "sqlite");
+
+      await user.click(screen.getByRole("button", { name: "Browse…" }));
+
+      expect(mockOpen).toHaveBeenCalledTimes(1);
+      expect(
+        (screen.getByLabelText("Database file") as HTMLInputElement).value,
+      ).toBe("/tmp/app.sqlite");
+    });
+
+    it("Save emits the chosen driver (PostgreSQL) in the spec", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "postgres");
+
+      await user.type(screen.getByLabelText("Host"), "pg.example.invalid");
+      await user.type(screen.getByLabelText("Username"), "report_reader");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(mockSave).toHaveBeenCalledTimes(1);
+      const [spec] = mockSave.mock.calls[0];
+      expect(spec).toMatchObject({
+        driver: "postgres",
+        host: "pg.example.invalid",
+        instance: null,
+        auth: { method: "sql_login", username: "report_reader" },
+      });
+    });
+
+    it("Save for SQLite emits auth.method 'none' with the file path in host", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "sqlite");
+
+      await user.type(
+        screen.getByLabelText("Database file"),
+        "/data/local.sqlite",
+      );
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(mockSave).toHaveBeenCalledTimes(1);
+      const [spec, password] = mockSave.mock.calls[0];
+      expect(spec).toMatchObject({
+        driver: "sqlite",
+        host: "/data/local.sqlite",
+        port: null,
+        instance: null,
+        database: null,
+        auth: { method: "none" },
+      });
+      // No password field is shown, so none is sent.
+      expect(password).toBeUndefined();
+    });
+
+    it("SQLite requires a database file before saving", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(screen.getByLabelText("Driver"), "sqlite");
+      // No file entered.
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(mockSave).not.toHaveBeenCalled();
+    });
   });
 });
