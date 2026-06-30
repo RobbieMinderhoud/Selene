@@ -1,9 +1,9 @@
 name: Integration tests
 
-# Dockerized integration tests: testcontainers spins up real SQL Server and
-# PostgreSQL servers (ephemeral host ports, no 1433/5432 clash). Kept off the
-# per-PR path to keep PR feedback fast and avoid the image pulls on every PR —
-# runs nightly and on demand from the Actions tab.
+# Dockerized integration tests: testcontainers spins up real SQL Server,
+# PostgreSQL, and MySQL servers (ephemeral host ports, no 1433/5432/3306 clash).
+# Kept off the per-PR path to keep PR feedback fast and avoid the image pulls on
+# every PR — runs nightly and on demand from the Actions tab.
 on:
   schedule:
     - cron: "0 3 * * *" # 03:00 UTC daily
@@ -50,3 +50,6 @@ jobs:
 
       - name: Run PostgreSQL integration tests
         run: cargo test -p selene-core --features postgres --test postgres_integration -- --ignored
+
+      - name: Run MySQL integration tests
+        run: cargo test -p selene-core --features mysql --test mysql_integration -- --ignored
