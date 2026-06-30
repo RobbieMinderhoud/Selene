@@ -10,6 +10,7 @@
 //! Cancellation is cooperative (see [`stream`]); on top of it the Tauri layer
 //! drops the connection to raise a server-side Attention for a hard stop.
 
+mod backup;
 mod config;
 mod convert;
 mod error;
@@ -24,6 +25,9 @@ use tiberius::{Client, SqlBrowser};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
+use crate::backup::{
+    BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions, ServerDirEntry,
+};
 use crate::capabilities::DriverCapabilities;
 use crate::connection_spec::{ConnectionSpec, DriverId};
 use crate::driver::{
@@ -450,5 +454,62 @@ impl Connection for MssqlConnection {
         cancel: &CancelToken,
     ) -> Result<u64, CoreError> {
         import::import_rows(&mut self.client, target, source, atomic, batch_size, cancel).await
+    }
+
+    async fn backup_database(
+        &mut self,
+        database: &str,
+        to_path: &str,
+        opts: &BackupOptions,
+        _cancel: &CancelToken,
+    ) -> Result<(), CoreError> {
+        backup::backup_database(&mut self.client, database, to_path, opts).await
+    }
+
+    async fn restore_filelist(&mut self, from_path: &str) -> Result<Vec<BackupFile>, CoreError> {
+        backup::restore_filelist(&mut self.client, from_path).await
+    }
+
+    async fn database_files(&mut self, database: &str) -> Result<Vec<DbFile>, CoreError> {
+        backup::database_files(&mut self.client, database).await
+    }
+
+    async fn default_file_dirs(&mut self) -> Result<DefaultDirs, CoreError> {
+        backup::default_file_dirs(&mut self.client).await
+    }
+
+    async fn default_backup_dir(&mut self) -> Result<String, CoreError> {
+        backup::default_backup_dir(&mut self.client).await
+    }
+
+    async fn list_server_dir(&mut self, path: &str) -> Result<Vec<ServerDirEntry>, CoreError> {
+        backup::list_server_dir(&mut self.client, path).await
+    }
+
+    async fn restore_database(
+        &mut self,
+        target: &str,
+        from_path: &str,
+        moves: &[FileMove],
+        opts: &RestoreOptions,
+        _cancel: &CancelToken,
+    ) -> Result<(), CoreError> {
+        backup::restore_database(&mut self.client, target, from_path, moves, opts).await
+    }
+
+    async fn current_session_id(&mut self) -> Result<i32, CoreError> {
+        backup::current_session_id(&mut self.client).await
+    }
+
+    async fn backup_percent_complete(&mut self, spid: i32) -> Result<Option<f32>, CoreError> {
+        backup::request_percent_complete(&mut self.client, spid).await
+    }
+
+    async fn kill_session(&mut self, spid: i32) -> Result<(), CoreError> {
+        backup::kill_session(&mut self.client, spid).await
+    }
+
+    async fn delete_server_file(&mut self, path: &str) -> Result<(), CoreError> {
+        backup::delete_server_file(&mut self.client, path).await
     }
 }

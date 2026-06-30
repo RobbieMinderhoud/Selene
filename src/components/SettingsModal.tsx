@@ -186,6 +186,7 @@ async function exportBackup(): Promise<void> {
         connection: s.connection,
         export: s.export,
         import: s.import,
+        backup: s.backup,
         multiTarget: s.multiTarget,
       };
     })();
@@ -483,6 +484,29 @@ export function SettingsModal({
                 setSection("connection", { healthCheckIntervalSecs: v });
                 void setHealthCheck(s.connection.healthCheck, v);
               }}
+            />
+          </section>
+
+          {/* Database backup (BACKUP DATABASE defaults) */}
+          <section className={styles.section}>
+            <h3 className={styles.sectionLabel}>Database backup</h3>
+            <SettingToggle
+              label="Compression"
+              help="Default WITH COMPRESSION when backing up a database. Smaller, faster .bak files on editions that support it."
+              value={s.backup.compression}
+              onChange={(v) => setSection("backup", { compression: v })}
+            />
+            <SettingToggle
+              label="Checksum"
+              help="Default WITH CHECKSUM to detect media/page corruption during backup and restore."
+              value={s.backup.checksum}
+              onChange={(v) => setSection("backup", { checksum: v })}
+            />
+            <SettingToggle
+              label="Verify after backup"
+              help="Run RESTORE VERIFYONLY once the backup is written to confirm the file is readable."
+              value={s.backup.verifyAfter}
+              onChange={(v) => setSection("backup", { verifyAfter: v })}
             />
           </section>
         </div>

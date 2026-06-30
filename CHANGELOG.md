@@ -8,6 +8,31 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.3.7] - 2026-06-30
+
+### Added
+
+- **Back up and restore SQL Server databases from the schema tree.**
+  Right-click a database for **Back Up…** (`BACKUP DATABASE` to a `.bak`) or
+  **Restore…** (lay a `.bak` over the existing database, replacing its contents
+  while keeping its name — the backup may come from a different database).
+  Restore previews the backup's contents and requires typing the database name
+  to confirm. Both show live progress (a real percentage when the server
+  reports it) and can be cancelled.
+- **Browse the SQL Server's own folders to pick a backup location.** Because
+  backups are written and read on the **server** (not your machine), the dialogs
+  use a server-side path with a **Browse…** button that walks the server's
+  filesystem, pre-filled with the server's default backup directory. For a local
+  server whose backup folder is shared to your machine, the file then appears
+  locally.
+- **Backup defaults in Settings.** Set whether new backups use compression,
+  checksums, and verify-after-backup under **Settings → General → Database
+  backup**.
+- **Optionally delete the backup file after a successful restore.** A checkbox
+  in the Restore dialog removes the `.bak` from the server afterwards
+  (best-effort; requires `xp_cmdshell` enabled — if it isn't, the restore still
+  succeeds and you're told the file was left in place).
+
 ## [1.3.6] - 2026-06-29
 
 ### Added

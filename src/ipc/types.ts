@@ -193,6 +193,68 @@ export interface ColumnMappingArg {
 }
 
 // ---------------------------------------------------------------------------
+// Database backup & restore (.bak). Event envelopes are camelCase + `kind`-
+// tagged; BackupFile is a core domain type and keeps snake_case. Mirrors
+// `src-tauri/src/commands/backup.rs` + the BackupEvent/RestoreEvent enums in
+// `commands/mod.rs`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Progress events streamed by `database_backup` over a `Channel<BackupEvent>`.
+ * Lifecycle: `started` → `progress`* → (`done` | `cancelled` | `failed`).
+ * `progress` may never arrive (e.g. the polling connection lacks
+ * `VIEW SERVER STATE`), in which case the UI shows indeterminate progress.
+ */
+export type BackupEvent =
+  | { kind: "started"; operationId: string }
+  | { kind: "progress"; percent: number }
+  | { kind: "done" }
+  | { kind: "cancelled" }
+  | { kind: "failed"; message: string };
+
+/** Progress events streamed by `database_restore`. Same shape as BackupEvent. */
+export type RestoreEvent =
+  | { kind: "started"; operationId: string }
+  | { kind: "progress"; percent: number }
+  | { kind: "done" }
+  | { kind: "cancelled" }
+  | { kind: "failed"; message: string };
+
+/** One logical file inside a `.bak`, from `RESTORE FILELISTONLY` (snake_case
+ *  core type). `file_type`: "D" data, "L" log, "F" full-text, "S" filestream. */
+export interface BackupFile {
+  logical_name: string;
+  physical_name: string;
+  file_type: string;
+}
+
+/** Backup options sent to `database_backup` (camelCase). */
+export interface BackupOptionsArg {
+  compression: boolean;
+  checksum: boolean;
+  verifyAfter: boolean;
+}
+
+/** Restore options sent to `database_restore` (camelCase). */
+export interface RestoreOptionsArg {
+  checksum: boolean;
+}
+
+/** Resolved result of an awaited backup/restore command (camelCase). The
+ *  channel events carry the live status; this just unblocks the promise. */
+export interface OperationSummary {
+  elapsedMs: number;
+  cancelled: boolean;
+}
+
+/** One child entry of a server-side directory (snake_case core type), for the
+ *  backup/restore file browser. Names only; the caller tracks the full path. */
+export interface ServerDirEntry {
+  name: string;
+  is_dir: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Run on multiple targets (camelCase envelopes; embedded Column/CellValue keep
 // their own casing). Mirrors `src-tauri/src/commands/multi.rs` + the MultiEvent
 // enum in `commands/mod.rs`.

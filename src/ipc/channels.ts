@@ -10,7 +10,14 @@
 
 import { Channel } from "@tauri-apps/api/core";
 
-import type { ExportEvent, ImportEvent, MultiEvent, QueryEvent } from "./types";
+import type {
+  BackupEvent,
+  ExportEvent,
+  ImportEvent,
+  MultiEvent,
+  QueryEvent,
+  RestoreEvent,
+} from "./types";
 
 /** Create a `Channel<QueryEvent>` wired to `onEvent`. */
 export function createQueryChannel(
@@ -44,6 +51,24 @@ export function createMultiChannel(
   onEvent: (event: MultiEvent) => void,
 ): Channel<MultiEvent> {
   const channel = new Channel<MultiEvent>();
+  channel.onmessage = onEvent;
+  return channel;
+}
+
+/** Create a `Channel<BackupEvent>` wired to `onEvent` (database backup). */
+export function createBackupChannel(
+  onEvent: (event: BackupEvent) => void,
+): Channel<BackupEvent> {
+  const channel = new Channel<BackupEvent>();
+  channel.onmessage = onEvent;
+  return channel;
+}
+
+/** Create a `Channel<RestoreEvent>` wired to `onEvent` (database restore). */
+export function createRestoreChannel(
+  onEvent: (event: RestoreEvent) => void,
+): Channel<RestoreEvent> {
+  const channel = new Channel<RestoreEvent>();
   channel.onmessage = onEvent;
   return channel;
 }

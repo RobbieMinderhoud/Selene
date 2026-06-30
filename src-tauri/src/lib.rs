@@ -226,6 +226,14 @@ pub fn run() {
             commands::import::import_csv_analyze,
             commands::import::import_csv,
             commands::import::table_drop,
+            // Backup & restore (.bak)
+            commands::backup::database_backup,
+            commands::backup::database_restore,
+            commands::backup::restore_filelist,
+            commands::backup::backup_cancel,
+            commands::backup::server_default_backup_dir,
+            commands::backup::server_list_dir,
+            commands::backup::server_delete_file,
             // Filesystem (file-backed tabs + workspace folders)
             commands::fs::file_read,
             commands::fs::file_write,
