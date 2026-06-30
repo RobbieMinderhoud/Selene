@@ -365,6 +365,14 @@ export interface DriverCapabilities {
   streaming_rows: boolean;
   list_databases: boolean;
   data_editing: boolean;
+  /** Supports backing up and restoring a database (e.g. SQL Server `.bak`). */
+  backup_restore: boolean;
+  /** Supports creating and dropping databases. */
+  database_create_drop: boolean;
+  /** Supports renaming a database. */
+  database_rename: boolean;
+  /** Supports taking a database offline / bringing it online. */
+  database_online_offline: boolean;
 }
 
 /** Returned by `session_connect` (camelCase envelope). */

@@ -26,6 +26,14 @@ pub struct DriverCapabilities {
     pub list_databases: bool,
     /// Supports editing result-set data back to the source.
     pub data_editing: bool,
+    /// Supports backing up and restoring a database (e.g. SQL Server `.bak`).
+    pub backup_restore: bool,
+    /// Supports creating and dropping databases.
+    pub database_create_drop: bool,
+    /// Supports renaming a database.
+    pub database_rename: bool,
+    /// Supports taking a database offline / bringing it back online.
+    pub database_online_offline: bool,
 }
 
 impl DriverCapabilities {
@@ -39,5 +47,9 @@ impl DriverCapabilities {
         streaming_rows: false,
         list_databases: false,
         data_editing: false,
+        backup_restore: false,
+        database_create_drop: false,
+        database_rename: false,
+        database_online_offline: false,
     };
 }
