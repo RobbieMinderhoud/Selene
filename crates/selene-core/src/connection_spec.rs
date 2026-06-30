@@ -39,6 +39,9 @@ pub enum AuthMethod {
     /// SQL Server login: username here, password supplied separately as a
     /// [`Secret`](crate::Secret).
     SqlLogin { username: String },
+    /// No authentication (e.g. a local SQLite file, whose "host" is the file
+    /// path). The connection carries no username, port, or password.
+    None,
 }
 
 /// Transport security settings.
@@ -107,6 +110,7 @@ impl ConnectionSpec {
     pub fn username(&self) -> Option<&str> {
         match &self.auth {
             AuthMethod::SqlLogin { username } => Some(username),
+            AuthMethod::None => None,
         }
     }
 }

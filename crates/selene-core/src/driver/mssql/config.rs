@@ -61,6 +61,10 @@ pub fn build_config(spec: &ConnectionSpec, secret: &Secret) -> Result<Config, Co
             // The ONLY point the secret is exposed — handed straight to tiberius.
             config.authentication(AuthMethod::sql_server(username, secret.expose()));
         }
+        // `AuthMethod::None` exists for password-less backends (SQLite); SQL
+        // Server always needs a login, so reject it rather than silently
+        // attempting an anonymous connect.
+        SpecAuth::None => return Err(CoreError::Config("SQL Server requires a SQL login".into())),
     }
 
     // Transport security. `encrypt` toggles between full encryption and

@@ -196,6 +196,10 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
 /// transaction wrappers / batches with SELECT — stays on the row-streaming
 /// path. Reuses the same comment/string stripping as [`classify`], so a
 /// `DELETE` or `OUTPUT` inside a string literal cannot mislead it.
+// Only the mssql driver routes batches through the affected-count path; in an
+// sqlx-only build the function (and the cluster below) has no non-test caller,
+// so silence dead-code there without dropping the logic or its test coverage.
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
 pub(crate) fn is_countable_dml_batch(sql: &str) -> bool {
     let sanitized = strip_comments_and_strings(sql);
     let stmts: Vec<&str> = sanitized
@@ -256,6 +260,7 @@ pub(crate) fn is_countable_dml_batch(sql: &str) -> bool {
 /// and trailing zero-count entries** emitted by the `BEGIN TRAN` and `ROLLBACK`
 /// statements, so the UI shows only the inner DML's "<n> rows affected" set
 /// instead of two phantom 0-row sets framing the real one.
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
 pub(crate) fn is_rollback_wrapped_dml_batch(sql: &str) -> bool {
     let sanitized = strip_comments_and_strings(sql);
     let stmts: Vec<&str> = sanitized
@@ -291,6 +296,7 @@ pub(crate) fn is_rollback_wrapped_dml_batch(sql: &str) -> bool {
 /// — while still routing the remaining DML through the counting path. A `USE`
 /// without a trailing `;` is intentionally left in place (handled by the normal
 /// dispatch), so only clearly-delimited leading `USE`s are peeled.
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
 pub(crate) fn peel_leading_use(sql: &str) -> Option<(Vec<&str>, &str)> {
     let bytes = sql.as_bytes();
     let mut uses: Vec<&str> = Vec::new();
@@ -356,6 +362,7 @@ pub(crate) fn peel_leading_use(sql: &str) -> Option<(Vec<&str>, &str)> {
 }
 
 /// Whether `stmt`'s first SQL keyword (comments/strings stripped) is `USE`.
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
 fn statement_starts_with_use(stmt: &str) -> bool {
     let sanitized = strip_comments_and_strings(stmt);
     first_keyword(&sanitized).is_some_and(|kw| kw.eq_ignore_ascii_case("USE"))
@@ -559,6 +566,7 @@ fn is_rollback_wrapped_no_semi(sanitized: &str, dml_only: bool) -> bool {
 ///
 /// Used by [`is_countable_dml_batch`] so that a `BEGIN TRAN; UPDATE …; ROLLBACK`
 /// dry-run is routed through `execute()` and reports the affected row count.
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
 fn is_rollback_wrapped_dml_only_batch(statements: &[&str]) -> bool {
     if statements.len() < 2 {
         return false;

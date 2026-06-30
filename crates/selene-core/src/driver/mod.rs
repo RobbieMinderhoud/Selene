@@ -29,6 +29,14 @@ use crate::value::{CellValue, Column};
 #[cfg(feature = "mssql")]
 pub mod mssql;
 
+// Shared sqlx helpers (streaming pump, param sub-batching, value formatting)
+// reused by every sqlx-backed driver. Compiled whenever at least one of them is.
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
+mod shared;
+
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
 /// Whether a [`RowSink`] wants more data or has seen enough (cancel / row cap).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flow {
@@ -455,6 +463,10 @@ pub fn driver_for(id: DriverId) -> Result<Box<dyn DatabaseDriver>, CoreError> {
     match id {
         #[cfg(feature = "mssql")]
         DriverId::Mssql => Ok(Box::new(mssql::MssqlDriver::new())),
+        #[cfg(feature = "sqlite")]
+        DriverId::Sqlite => Ok(Box::new(sqlite::SqliteDriver::new())),
+        // Postgres/MySQL feature-gating is wired (see `shared`), but no driver
+        // is registered yet — they fall through to Unsupported until implemented.
         other => Err(CoreError::Unsupported(format!(
             "driver {other:?} is not available in this build"
         ))),
