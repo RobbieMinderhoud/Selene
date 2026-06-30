@@ -27,7 +27,7 @@ use tauri::State;
 
 use selene_core::{
     driver_for, plan_moves, BackupFile, BackupOptions, CancelToken, Connection, ConnectionSpec,
-    CoreError, DefaultDirs, RestoreOptions, Secret,
+    CoreError, DefaultDirs, RestoreOptions, Secret, ServerDirEntry,
 };
 
 use crate::commands::{BackupEvent, RestoreEvent};
@@ -449,6 +449,36 @@ pub async fn restore_filelist(
         .ok_or_else(|| IpcError::unknown_session(&session_id))?;
     let files = session.conn.restore_filelist(&path).await?;
     Ok(files)
+}
+
+/// The server's default backup directory — pre-fills the backup destination and
+/// seeds the server-side file browser. Empty string if the instance does not
+/// expose one. Runs on the session connection.
+#[tauri::command]
+pub async fn server_default_backup_dir(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<String, IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    Ok(session.conn.default_backup_dir().await?)
+}
+
+/// List the immediate children of the **server** directory `path` (for the
+/// backup/restore file browser). Runs on the session connection.
+#[tauri::command]
+pub async fn server_list_dir(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<Vec<ServerDirEntry>, IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    Ok(session.conn.list_server_dir(&path).await?)
 }
 
 /// Request cancellation of an in-flight backup or restore.

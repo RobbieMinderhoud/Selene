@@ -1,12 +1,14 @@
 /**
- * Restore… dialog: restore a `.bak` (chosen via the native open dialog) **over**
- * an existing target database — overwriting it in place (`RESTORE … WITH
- * REPLACE`, relocating data/log files). The backup may originate from a
- * different database; the target keeps its own name.
+ * Restore… dialog: restore a `.bak` from the **SQL Server host** *over* an
+ * existing target database — overwriting it in place (`RESTORE … WITH REPLACE`,
+ * relocating data/log files). The backup may originate from a different
+ * database; the target keeps its own name.
  *
- * This is destructive, so it requires typing the target database name to
- * confirm (like Drop). After choosing a file we preview its logical files via
- * `restore_filelist`. Progress streams over a `Channel<RestoreEvent>`.
+ * `RESTORE` runs server-side, so the `.bak` must be a path the server can read:
+ * browse the server's folders (or type a path). This is destructive, so it
+ * requires typing the target database name to confirm (like Drop). After a file
+ * is chosen we preview its logical files via `restore_filelist`. Progress
+ * streams over a `Channel<RestoreEvent>`.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -15,16 +17,16 @@ import {
   backupCancel,
   databaseRestore,
   restoreFilelist,
+  serverDefaultBackupDir,
 } from "../ipc/commands";
 import { createRestoreChannel } from "../ipc/channels";
 import { asIpcError, type BackupFile } from "../ipc/types";
 import { useSettingsStore } from "../state/settingsStore";
-import { toastError, toastInfo, toastSuccess } from "../state/toastStore";
+import { toastInfo, toastSuccess } from "../state/toastStore";
 import { Modal } from "./Modal";
 import { OperationProgress } from "./OperationProgress";
+import { ServerPathBrowser } from "./ServerPathBrowser";
 import styles from "./BackupRestore.module.css";
-
-const BAK_FILTER = [{ name: "SQL Server backup", extensions: ["bak"] }];
 
 type Phase = "idle" | "running" | "error";
 
@@ -61,7 +63,9 @@ export function RestoreModal({
 }) {
   const defaultChecksum = useSettingsStore((s) => s.backup.checksum);
 
-  const [path, setPath] = useState<string | null>(null);
+  const [path, setPath] = useState("");
+  const [defaultDir, setDefaultDir] = useState("");
+  const [browseOpen, setBrowseOpen] = useState(false);
   const [files, setFiles] = useState<BackupFile[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [checksum, setChecksum] = useState(defaultChecksum);
@@ -73,7 +77,7 @@ export function RestoreModal({
 
   useEffect(() => {
     if (!open) return;
-    setPath(null);
+    setPath("");
     setFiles(null);
     setFilesError(null);
     setChecksum(defaultChecksum);
@@ -82,37 +86,41 @@ export function RestoreModal({
     setPercent(null);
     setErrorMsg(null);
     opId.current = null;
-  }, [open, defaultChecksum]);
+
+    let cancelled = false;
+    serverDefaultBackupDir(sessionId)
+      .then((dir) => {
+        if (!cancelled) setDefaultDir(dir);
+      })
+      .catch(() => {
+        /* no default dir — browse from wherever the user types */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, defaultChecksum, sessionId]);
 
   const running = phase === "running";
   const confirmed = confirmText === target;
-  const canRestore = !!path && !!files && !filesError && confirmed && !running;
+  const canRestore =
+    !!path.trim() && !!files && !filesError && confirmed && !running;
 
-  async function choosePath() {
+  /** Preview the chosen `.bak`'s logical files (and surface a read error). */
+  async function loadFilelist(p: string) {
+    const trimmed = p.trim();
+    setFiles(null);
+    setFilesError(null);
+    if (!trimmed) return;
     try {
-      const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
-      const picked = await openDialog({
-        title: "Choose a backup to restore",
-        multiple: false,
-        filters: BAK_FILTER,
-      });
-      if (typeof picked !== "string") return;
-      setPath(picked);
-      setFiles(null);
-      setFilesError(null);
-      try {
-        const list = await restoreFilelist(sessionId, picked);
-        setFiles(list);
-      } catch (e) {
-        setFilesError(asIpcError(e).message);
-      }
+      setFiles(await restoreFilelist(sessionId, trimmed));
     } catch (e) {
-      toastError("Could not open the file dialog", asIpcError(e).message);
+      setFilesError(asIpcError(e).message);
     }
   }
 
   async function runRestore() {
-    if (!path) return;
+    const src = path.trim();
+    if (!src) return;
     setPhase("running");
     setPercent(null);
     setErrorMsg(null);
@@ -124,7 +132,7 @@ export function RestoreModal({
       const summary = await databaseRestore(
         sessionId,
         target,
-        path,
+        src,
         { checksum },
         channel,
       );
@@ -183,20 +191,24 @@ export function RestoreModal({
       </div>
 
       <div className={styles.field}>
-        <span className={styles.label}>Backup file (.bak)</span>
+        <span className={styles.label}>Backup file (.bak) on the server</span>
         <div className={styles.pathRow}>
-          <span
-            className={`${styles.path} ${path ? "" : styles.pathEmpty}`}
-            title={path ?? undefined}
-          >
-            {path ?? "No file chosen"}
-          </span>
+          <input
+            className={styles.confirmInput}
+            value={path}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Backup file path"
+            disabled={running}
+            onChange={(e) => setPath(e.target.value)}
+            onBlur={() => void loadFilelist(path)}
+          />
           <button
             type="button"
-            onClick={() => void choosePath()}
+            onClick={() => setBrowseOpen(true)}
             disabled={running}
           >
-            Choose…
+            Browse…
           </button>
         </div>
         <span className={styles.help}>
@@ -265,6 +277,19 @@ export function RestoreModal({
       {phase === "error" && errorMsg && (
         <div className={styles.errorBox}>{errorMsg}</div>
       )}
+
+      <ServerPathBrowser
+        open={browseOpen}
+        sessionId={sessionId}
+        mode="openBak"
+        initialPath={defaultDir || "/"}
+        onClose={() => setBrowseOpen(false)}
+        onPick={(picked) => {
+          setPath(picked);
+          setBrowseOpen(false);
+          void loadFilelist(picked);
+        }}
+      />
     </Modal>
   );
 }

@@ -45,6 +45,7 @@ import type {
   RestoreEvent,
   RestoreOptionsArg,
   SchemaInfo,
+  ServerDirEntry,
   SessionInfo,
   TableInfo,
   TestReport,
@@ -468,6 +469,19 @@ export function restoreFilelist(
 /** `backup_cancel` -> request cancellation of an in-flight backup or restore. */
 export function backupCancel(operationId: string): Promise<void> {
   return invoke("backup_cancel", { operationId });
+}
+
+/** `server_default_backup_dir` -> the server's default backup directory (or ""). */
+export function serverDefaultBackupDir(sessionId: string): Promise<string> {
+  return invoke("server_default_backup_dir", { sessionId });
+}
+
+/** `server_list_dir` -> immediate children of a directory on the server host. */
+export function serverListDir(
+  sessionId: string,
+  path: string,
+): Promise<ServerDirEntry[]> {
+  return invoke("server_list_dir", { sessionId, path });
 }
 
 // --- Filesystem (file-backed tabs + workspace folders) --------------------

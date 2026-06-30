@@ -25,7 +25,9 @@ use tiberius::{Client, SqlBrowser};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
-use crate::backup::{BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions};
+use crate::backup::{
+    BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions, ServerDirEntry,
+};
 use crate::capabilities::DriverCapabilities;
 use crate::connection_spec::{ConnectionSpec, DriverId};
 use crate::driver::{
@@ -474,6 +476,14 @@ impl Connection for MssqlConnection {
 
     async fn default_file_dirs(&mut self) -> Result<DefaultDirs, CoreError> {
         backup::default_file_dirs(&mut self.client).await
+    }
+
+    async fn default_backup_dir(&mut self) -> Result<String, CoreError> {
+        backup::default_backup_dir(&mut self.client).await
+    }
+
+    async fn list_server_dir(&mut self, path: &str) -> Result<Vec<ServerDirEntry>, CoreError> {
+        backup::list_server_dir(&mut self.client, path).await
     }
 
     async fn restore_database(

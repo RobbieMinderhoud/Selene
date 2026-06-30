@@ -1,25 +1,24 @@
 /**
  * BackupModal / RestoreModal orchestration.
  *
- * The OS file dialog, IPC commands, and the streaming channels are mocked at
- * their module boundaries (no Tauri). We assert the dialogs gate their action
- * button correctly and call the right command with the args they built.
+ * The IPC commands and streaming channels are mocked at their module
+ * boundaries (no Tauri). Backup/restore paths are server-side: the dialogs use
+ * an editable path field (+ a Browse button backed by `server_list_dir`). We
+ * assert the action button is gated correctly and calls the right command with
+ * the path/options it built.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  save: vi.fn(async () => "/srv/backups/db.bak"),
-  open: vi.fn(async () => "/srv/backups/source.bak"),
-}));
-
 vi.mock("../ipc/commands", () => ({
   databaseBackup: vi.fn(),
   databaseRestore: vi.fn(),
   restoreFilelist: vi.fn(),
   backupCancel: vi.fn(),
+  serverDefaultBackupDir: vi.fn(async () => ""),
+  serverListDir: vi.fn(async () => []),
 }));
 
 vi.mock("../ipc/channels", () => ({
@@ -47,26 +46,23 @@ beforeEach(() => {
 });
 
 describe("BackupModal", () => {
-  it("requires a destination, then backs up with the settings-default options", async () => {
+  it("backs up to the typed server path with the settings-default options", async () => {
     mockBackup.mockResolvedValue({ elapsedMs: 5, cancelled: false });
     const onClose = vi.fn();
     render(
       <BackupModal open sessionId="s1" database="Sales" onClose={onClose} />,
     );
 
-    // "Back up" is disabled until a destination is chosen.
-    const backUp = screen.getByRole("button", { name: "Back up" });
-    expect(backUp).toBeDisabled();
+    const dest = screen.getByLabelText("Backup destination path");
+    await userEvent.clear(dest);
+    await userEvent.type(dest, "/mnt/backups/db.bak");
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose…" }));
-    await waitFor(() => expect(backUp).toBeEnabled());
-
-    fireEvent.click(backUp);
+    fireEvent.click(screen.getByRole("button", { name: "Back up" }));
     await waitFor(() => expect(mockBackup).toHaveBeenCalledTimes(1));
     const [sessionId, database, path, options] = mockBackup.mock.calls[0];
     expect(sessionId).toBe("s1");
     expect(database).toBe("Sales");
-    expect(path).toBe("/srv/backups/db.bak");
+    expect(path).toBe("/mnt/backups/db.bak");
     // Defaults from settingsStore: compression + checksum on, verify off.
     expect(options).toEqual({
       compression: true,
@@ -74,6 +70,15 @@ describe("BackupModal", () => {
       verifyAfter: false,
     });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("disables Back up until a destination is set", async () => {
+    render(
+      <BackupModal open sessionId="s1" database="Sales" onClose={vi.fn()} />,
+    );
+    const dest = screen.getByLabelText("Backup destination path");
+    await userEvent.clear(dest);
+    expect(screen.getByRole("button", { name: "Back up" })).toBeDisabled();
   });
 });
 
@@ -101,12 +106,14 @@ describe("RestoreModal", () => {
     const restore = screen.getByRole("button", { name: "Restore" });
     expect(restore).toBeDisabled();
 
-    // Choose a .bak → its logical files are previewed via restore_filelist.
-    fireEvent.click(screen.getByRole("button", { name: "Choose…" }));
+    // Type a server path; blur loads the file list via restore_filelist.
+    const src = screen.getByLabelText("Backup file path");
+    await userEvent.type(src, "/mnt/backups/source.bak");
+    fireEvent.blur(src);
     await waitFor(() =>
       expect(mockFilelist).toHaveBeenCalledWith(
         "s1",
-        "/srv/backups/source.bak",
+        "/mnt/backups/source.bak",
       ),
     );
     await screen.findByText("Src");
@@ -122,7 +129,7 @@ describe("RestoreModal", () => {
     const [sessionId, target, path, options] = mockRestore.mock.calls[0];
     expect(sessionId).toBe("s1");
     expect(target).toBe("Target");
-    expect(path).toBe("/srv/backups/source.bak");
+    expect(path).toBe("/mnt/backups/source.bak");
     expect(options).toEqual({ checksum: true });
     await waitFor(() => expect(onRestored).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();

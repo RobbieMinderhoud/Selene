@@ -1,26 +1,32 @@
 /**
- * Back Up… dialog: `BACKUP DATABASE` to a `.bak` file chosen via the native save
- * dialog. The chosen path is interpreted by the **SQL Server host** (the backup
- * runs server-side), so for a containerised local server the directory must be
- * reachable by the server process.
+ * Back Up… dialog: `BACKUP DATABASE` to a `.bak` on the **SQL Server host**.
  *
- * Options seed from the Database-backup settings and are editable per run.
- * Progress (a real percentage when the server reports it) streams over a
- * `Channel<BackupEvent>` into an in-modal bar; the operation can be cancelled.
+ * `BACKUP` runs server-side, so the destination is a path on the *server's*
+ * filesystem, not this machine — you browse the server's folders (or type a
+ * path). For a local Docker server, a folder bind-mounted to your machine (e.g.
+ * `/mnt/backups`) makes the resulting file appear locally. The destination is
+ * pre-filled with the server's default backup directory.
+ *
+ * Options seed from the Database-backup settings. Progress (a real percentage
+ * when the server reports it) streams over a `Channel<BackupEvent>`.
  */
 
 import { useEffect, useRef, useState } from "react";
 
-import { backupCancel, databaseBackup } from "../ipc/commands";
+import {
+  backupCancel,
+  databaseBackup,
+  serverDefaultBackupDir,
+} from "../ipc/commands";
 import { createBackupChannel } from "../ipc/channels";
 import { asIpcError } from "../ipc/types";
+import { baseName, dirName, joinServerPath } from "../lib/serverPath";
 import { useSettingsStore } from "../state/settingsStore";
-import { toastError, toastInfo, toastSuccess } from "../state/toastStore";
+import { toastInfo, toastSuccess } from "../state/toastStore";
 import { Modal } from "./Modal";
 import { OperationProgress } from "./OperationProgress";
+import { ServerPathBrowser } from "./ServerPathBrowser";
 import styles from "./BackupRestore.module.css";
-
-const BAK_FILTER = [{ name: "SQL Server backup", extensions: ["bak"] }];
 
 /** `YYYY-MM-DD-HHmmss` for a default backup file name. */
 function timestamp(): string {
@@ -45,43 +51,48 @@ export function BackupModal({
   const [compression, setCompression] = useState(defaults.compression);
   const [checksum, setChecksum] = useState(defaults.checksum);
   const [verifyAfter, setVerifyAfter] = useState(defaults.verifyAfter);
-  const [path, setPath] = useState<string | null>(null);
+  const [path, setPath] = useState("");
+  const [defaultDir, setDefaultDir] = useState("");
+  const [browseOpen, setBrowseOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [percent, setPercent] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const opId = useRef<string | null>(null);
 
-  // Reset to current settings each time the dialog opens.
+  // Reset to current settings + a fresh suggested destination on open.
   useEffect(() => {
     if (!open) return;
     setCompression(defaults.compression);
     setChecksum(defaults.checksum);
     setVerifyAfter(defaults.verifyAfter);
-    setPath(null);
     setPhase("idle");
     setPercent(null);
     setErrorMsg(null);
     opId.current = null;
-  }, [open, defaults]);
+
+    const fileName = `${database}-${timestamp()}.bak`;
+    setPath(fileName);
+    // Prefill the destination with the server's default backup directory.
+    let cancelled = false;
+    serverDefaultBackupDir(sessionId)
+      .then((dir) => {
+        if (cancelled) return;
+        setDefaultDir(dir);
+        if (dir) setPath(joinServerPath(dir, fileName));
+      })
+      .catch(() => {
+        /* no default dir — the user types or browses a path */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, defaults, sessionId, database]);
 
   const running = phase === "running";
 
-  async function choosePath() {
-    try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const picked = await save({
-        title: `Back up ${database}`,
-        defaultPath: `${database}-${timestamp()}.bak`,
-        filters: BAK_FILTER,
-      });
-      if (typeof picked === "string") setPath(picked);
-    } catch (e) {
-      toastError("Could not open the save dialog", asIpcError(e).message);
-    }
-  }
-
   async function runBackup() {
-    if (!path) return;
+    const dest = path.trim();
+    if (!dest) return;
     setPhase("running");
     setPercent(null);
     setErrorMsg(null);
@@ -93,7 +104,7 @@ export function BackupModal({
       const summary = await databaseBackup(
         sessionId,
         database,
-        path,
+        dest,
         { compression, checksum, verifyAfter },
         channel,
       );
@@ -104,9 +115,8 @@ export function BackupModal({
       }
       onClose();
     } catch (e) {
-      const err = asIpcError(e);
       setPhase("error");
-      setErrorMsg(err.message);
+      setErrorMsg(asIpcError(e).message);
     }
   }
 
@@ -126,7 +136,7 @@ export function BackupModal({
       <button
         type="button"
         className="primary"
-        disabled={!path}
+        disabled={!path.trim()}
         onClick={() => void runBackup()}
       >
         {phase === "error" ? "Retry backup" : "Back up"}
@@ -143,25 +153,29 @@ export function BackupModal({
       footer={footer}
     >
       <div className={styles.field}>
-        <span className={styles.label}>Destination (.bak)</span>
+        <span className={styles.label}>Destination (.bak) on the server</span>
         <div className={styles.pathRow}>
-          <span
-            className={`${styles.path} ${path ? "" : styles.pathEmpty}`}
-            title={path ?? undefined}
-          >
-            {path ?? "No file chosen"}
-          </span>
+          <input
+            className={styles.confirmInput}
+            value={path}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Backup destination path"
+            disabled={running}
+            onChange={(e) => setPath(e.target.value)}
+          />
           <button
             type="button"
-            onClick={() => void choosePath()}
+            onClick={() => setBrowseOpen(true)}
             disabled={running}
           >
-            Choose…
+            Browse…
           </button>
         </div>
         <span className={styles.help}>
-          This path is on the SQL Server host, not your machine. The server must
-          be able to write to the chosen folder.
+          This path is on the SQL Server host, not your machine. For a local
+          Docker server, choose a folder mounted to your machine (e.g.
+          /mnt/backups) so the file appears locally.
         </span>
       </div>
 
@@ -212,6 +226,19 @@ export function BackupModal({
       {phase === "error" && errorMsg && (
         <div className={styles.errorBox}>{errorMsg}</div>
       )}
+
+      <ServerPathBrowser
+        open={browseOpen}
+        sessionId={sessionId}
+        mode="saveBak"
+        initialPath={dirName(path) || defaultDir}
+        defaultFileName={baseName(path) || `${database}-${timestamp()}.bak`}
+        onClose={() => setBrowseOpen(false)}
+        onPick={(picked) => {
+          setPath(picked);
+          setBrowseOpen(false);
+        }}
+      />
     </Modal>
   );
 }

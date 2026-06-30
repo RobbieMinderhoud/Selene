@@ -16,7 +16,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::backup::{BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions};
+use crate::backup::{
+    BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions, ServerDirEntry,
+};
 use crate::capabilities::DriverCapabilities;
 use crate::connection_spec::{ConnectionSpec, DriverId};
 use crate::error::CoreError;
@@ -347,6 +349,23 @@ pub trait Connection: Send {
     async fn default_file_dirs(&mut self) -> Result<DefaultDirs, CoreError> {
         Err(CoreError::Unsupported(
             "default_file_dirs is not supported by this driver".into(),
+        ))
+    }
+
+    /// The server's default **backup** directory, for pre-filling a backup
+    /// destination and as the starting point for the server-side file browser.
+    async fn default_backup_dir(&mut self) -> Result<String, CoreError> {
+        Err(CoreError::Unsupported(
+            "default_backup_dir is not supported by this driver".into(),
+        ))
+    }
+
+    /// List the immediate entries (sub-directories and files) of the **server**
+    /// directory `path`, so the UI can browse the server's filesystem to pick a
+    /// backup destination or a `.bak` to restore. Returns names only.
+    async fn list_server_dir(&mut self, _path: &str) -> Result<Vec<ServerDirEntry>, CoreError> {
+        Err(CoreError::Unsupported(
+            "list_server_dir is not supported by this driver".into(),
         ))
     }
 

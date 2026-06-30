@@ -1474,3 +1474,39 @@ async fn backup_then_restore_over_existing_database() {
         .expect("target listed");
     assert_eq!(tgt.state_desc, "ONLINE");
 }
+
+// ---------------------------------------------------------------------------
+// 13. server filesystem browse (default backup dir + xp_dirtree listing)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
+async fn server_default_backup_dir_and_directory_listing() {
+    let mut fixture = start_mssql().await;
+    let conn = fixture.conn.as_mut();
+
+    // The instance reports a default backup/data path (Linux: /var/opt/mssql/...).
+    let dir = conn.default_backup_dir().await.expect("default_backup_dir");
+    assert!(
+        dir.contains("/var/opt/mssql"),
+        "default dir should be under the mssql data root, got {dir:?}"
+    );
+
+    // Browsing /var/opt/mssql lists its children, including the `data` subdir.
+    let entries = conn
+        .list_server_dir("/var/opt/mssql")
+        .await
+        .expect("list_server_dir");
+    let data = entries
+        .iter()
+        .find(|e| e.name == "data")
+        .expect("`data` directory should be listed under /var/opt/mssql");
+    assert!(data.is_dir, "`data` should be reported as a directory");
+
+    // A non-existent path lists empty rather than erroring.
+    let empty = conn
+        .list_server_dir("/no/such/path/here")
+        .await
+        .expect("listing a missing dir is not an error");
+    assert!(empty.is_empty(), "missing directory yields no entries");
+}

@@ -231,6 +231,8 @@ pub fn run() {
             commands::backup::database_restore,
             commands::backup::restore_filelist,
             commands::backup::backup_cancel,
+            commands::backup::server_default_backup_dir,
+            commands::backup::server_list_dir,
             // Filesystem (file-backed tabs + workspace folders)
             commands::fs::file_read,
             commands::fs::file_write,

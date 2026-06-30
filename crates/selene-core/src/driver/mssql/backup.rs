@@ -19,7 +19,9 @@
 
 use tiberius::ToSql;
 
-use crate::backup::{BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions};
+use crate::backup::{
+    BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions, ServerDirEntry,
+};
 use crate::error::CoreError;
 
 use super::error::map_tiberius_err;
@@ -177,6 +179,49 @@ pub(crate) async fn default_file_dirs(
         None => (String::new(), String::new()),
     };
     Ok(DefaultDirs { data, log })
+}
+
+/// The server's default backup directory, for pre-filling the destination and
+/// seeding the server file browser. Falls back to the default data directory,
+/// then an empty string, when the instance does not expose a backup path.
+pub(crate) async fn default_backup_dir(client: &mut TiberiusClient) -> Result<String, CoreError> {
+    let sql = "SELECT COALESCE( \
+               CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS nvarchar(4000)), \
+               CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(4000)), \
+               '')";
+    let rows = fetch_rows(client, sql, &[]).await?;
+    Ok(rows
+        .first()
+        .and_then(|r| r.get::<&str, _>(0))
+        .unwrap_or("")
+        .to_string())
+}
+
+/// List the immediate children of server directory `path` via `xp_dirtree`
+/// (`@path, depth = 1, include_files = 1`). Returns one [`ServerDirEntry`] per
+/// child (names only); a non-existent path yields an empty list, not an error.
+///
+/// `xp_dirtree` returns columns `subdirectory` (the child's name), `depth`, and
+/// `file` (1 for a file, 0 for a directory). The path is bound, not spliced.
+pub(crate) async fn list_server_dir(
+    client: &mut TiberiusClient,
+    path: &str,
+) -> Result<Vec<ServerDirEntry>, CoreError> {
+    let rows = fetch_rows(client, "EXEC master.sys.xp_dirtree @P1, 1, 1", &[&path]).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name: &str = match row.try_get("subdirectory").map_err(map_tiberius_err)? {
+            Some(n) => n,
+            None => continue,
+        };
+        // `file` is 1 for files, 0 for directories.
+        let is_file: i32 = row.try_get("file").map_err(map_tiberius_err)?.unwrap_or(0);
+        out.push(ServerDirEntry {
+            name: name.to_string(),
+            is_dir: is_file == 0,
+        });
+    }
+    Ok(out)
 }
 
 /// Restore the backup at `from_path` over the existing database `target`.

@@ -23,6 +23,7 @@ pub mod value;
 
 pub use backup::{
     plan_moves, BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions,
+    ServerDirEntry,
 };
 pub use capabilities::DriverCapabilities;
 pub use connection_spec::{AuthMethod, ConnectionSpec, DriverId, TlsConfig};

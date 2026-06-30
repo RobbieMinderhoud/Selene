@@ -80,6 +80,17 @@ pub struct DefaultDirs {
     pub log: String,
 }
 
+/// One entry when browsing a directory on the **server's** filesystem (via the
+/// driver's directory lister). Names only — the caller tracks the absolute path
+/// and joins with the server's separator.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServerDirEntry {
+    /// The entry's name (final path component), not a full path.
+    pub name: String,
+    /// `true` for a subdirectory, `false` for a file.
+    pub is_dir: bool,
+}
+
 /// Split a server-side absolute file path into `(directory_with_trailing_sep,
 /// file_name)`. Handles both Windows (`\`) and POSIX (`/`) paths by looking at
 /// the last separator of either kind. The returned directory keeps its trailing

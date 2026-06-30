@@ -247,6 +247,13 @@ export interface OperationSummary {
   cancelled: boolean;
 }
 
+/** One child entry of a server-side directory (snake_case core type), for the
+ *  backup/restore file browser. Names only; the caller tracks the full path. */
+export interface ServerDirEntry {
+  name: string;
+  is_dir: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Run on multiple targets (camelCase envelopes; embedded Column/CellValue keep
 // their own casing). Mirrors `src-tauri/src/commands/multi.rs` + the MultiEvent
