@@ -1,5 +1,4 @@
-//! Value formatters shared by the native-typed sqlx drivers (Postgres today,
-//! MySQL later).
+//! Value formatters shared by the native-typed sqlx drivers (Postgres and MySQL).
 //!
 //! Two families of value need a single, culture-independent rendering so they
 //! round-trip losslessly through Selene's neutral [`CellValue`](crate::value::CellValue):
@@ -16,7 +15,12 @@
 //! types, so it does not use this module; that is why it is feature-gated to the
 //! backends that do (avoiding dead code in a SQLite-only build).
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+// `DateTime`/`TimeZone` back the Postgres-only `iso_offset_dt`, so they are
+// imported only when that backend is compiled (avoids an unused-import warning in
+// a MySQL-only build).
+#[cfg(feature = "postgres")]
+use chrono::{DateTime, TimeZone};
 
 /// ISO-8601 for a naive datetime, with a fractional-second part only when
 /// non-zero (`%.f`). The `T` separator keeps it ISO-compliant — identical to the
@@ -39,6 +43,12 @@ pub(crate) fn iso_time(t: &NaiveTime) -> String {
 /// RFC-3339 for a timezone-aware datetime (e.g. Postgres `TIMESTAMPTZ`). Works
 /// for any [`TimeZone`] (`Utc`, `FixedOffset`, …); the offset is preserved in the
 /// rendered string.
+///
+/// Only Postgres has a timezone-aware column type (`TIMESTAMPTZ`); MySQL's
+/// `TIMESTAMP`/`DATETIME` are returned without an offset and use [`iso_naive_dt`].
+/// So this formatter is gated to the Postgres backend to avoid a dead-code
+/// warning in a MySQL-only build.
+#[cfg(feature = "postgres")]
 pub(crate) fn iso_offset_dt<Tz: TimeZone>(dt: &DateTime<Tz>) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -55,7 +65,7 @@ pub(crate) fn decimal_to_string(d: rust_decimal::Decimal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{FixedOffset, NaiveDate, Utc};
+    use chrono::NaiveDate;
     use rust_decimal::Decimal;
     use std::str::FromStr as _;
 
@@ -87,8 +97,11 @@ mod tests {
         assert_eq!(iso_time(&t2), "08:09:10.250");
     }
 
+    // `iso_offset_dt` is Postgres-only, so its test is gated to that backend too.
+    #[cfg(feature = "postgres")]
     #[test]
     fn offset_datetime_is_rfc3339() {
+        use chrono::{FixedOffset, TimeZone, Utc};
         // UTC renders with a `+00:00` offset.
         let utc = Utc
             .with_ymd_and_hms(2026, 6, 30, 12, 0, 0)

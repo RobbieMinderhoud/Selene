@@ -1,5 +1,4 @@
-//! Helpers shared by every sqlx-backed driver (SQLite today; Postgres/MySQL
-//! later).
+//! Helpers shared by every sqlx-backed driver (SQLite, Postgres, and MySQL).
 //!
 //! sqlx exposes one uniform surface across its backends, so the genuinely
 //! backend-agnostic plumbing — streaming a `fetch_many` result into a
@@ -15,8 +14,8 @@
 //! [`convert`] holds the value formatters (ISO-8601 datetimes, lossless decimal
 //! strings) that the native-typed sqlx drivers need. SQLite stores temporal/
 //! decimal data as TEXT (no native chrono/`Decimal` decode), so it does not use
-//! them — Postgres (and later MySQL) do, decoding `chrono`/`rust_decimal` values
-//! and formatting them here, which keeps a single culture-independent rendering
+//! them — Postgres and MySQL do, decoding `chrono`/`rust_decimal` values and
+//! formatting them here, which keeps a single culture-independent rendering
 //! shared across the sqlx backends.
 
 #[cfg(any(feature = "postgres", feature = "mysql"))]

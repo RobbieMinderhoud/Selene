@@ -34,6 +34,9 @@ pub mod mssql;
 #[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
 mod shared;
 
+#[cfg(feature = "mysql")]
+pub mod mysql;
+
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
@@ -468,10 +471,17 @@ pub fn driver_for(id: DriverId) -> Result<Box<dyn DatabaseDriver>, CoreError> {
         DriverId::Mssql => Ok(Box::new(mssql::MssqlDriver::new())),
         #[cfg(feature = "postgres")]
         DriverId::Postgres => Ok(Box::new(postgres::PostgresDriver::new())),
+        #[cfg(feature = "mysql")]
+        DriverId::Mysql => Ok(Box::new(mysql::MysqlDriver::new())),
         #[cfg(feature = "sqlite")]
         DriverId::Sqlite => Ok(Box::new(sqlite::SqliteDriver::new())),
-        // MySQL feature-gating is wired (see `shared`), but no driver is
-        // registered yet — it falls through to Unsupported until implemented.
+        // Catch-all for any `DriverId` whose backend feature is off in this build
+        // (e.g. the default mssql-only bundle, or a sqlx-only test build). When
+        // *every* driver feature happens to be enabled at once this arm becomes
+        // unreachable — but it is genuinely reachable in the common single/partial
+        // feature configurations, so the lint is suppressed only here rather than
+        // dropping the arm (which would then fail to compile those builds).
+        #[allow(unreachable_patterns)]
         other => Err(CoreError::Unsupported(format!(
             "driver {other:?} is not available in this build"
         ))),

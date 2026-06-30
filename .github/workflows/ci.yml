@@ -111,7 +111,7 @@ jobs:
       # integration.yml), so without `--ignored` only the unit tests and SQLite's
       # in-process integration tests run — fast and dependency-free.
       - name: Lint sqlx drivers (Clippy)
-        run: cargo clippy -p selene-core --features "sqlite postgres" --all-targets -- -D warnings
+        run: cargo clippy -p selene-core --features "sqlite postgres mysql" --all-targets -- -D warnings
 
       - name: Tests (sqlx drivers)
-        run: cargo test -p selene-core --features "sqlite postgres"
+        run: cargo test -p selene-core --features "sqlite postgres mysql"
