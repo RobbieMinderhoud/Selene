@@ -20,6 +20,31 @@ mssql = [
     "dep:uuid",
     "dep:socket2",
 ]
+# The sqlx-backed drivers (postgres/mysql/sqlite). Each public feature turns on
+# its sqlx backend plus the shared `_sqlx-common` set of runtime/TLS/type deps.
+# SQLite bundles the engine statically (no external libsqlite3); Postgres/MySQL
+# are registered in `driver_for` later but their feature wiring lands now so the
+# shared module compiles uniformly.
+postgres = ["sqlx/postgres", "_sqlx-common"]
+mysql = ["sqlx/mysql", "_sqlx-common"]
+sqlite = ["sqlx/sqlite", "_sqlx-common"]
+# Internal: the deps every sqlx driver needs. We use the `tls-rustls` backend
+# (never native-tls — it breaks the TLS handshake on macOS, exactly as for the
+# mssql driver); SQLite itself needs no TLS but the shared flag stays rustls so
+# Postgres/MySQL inherit a working backend. `chrono`/`uuid`/`rust_decimal`/`json`
+# enable typed decoding of the corresponding column families.
+_sqlx-common = [
+    "dep:sqlx",
+    "dep:tokio",
+    "dep:futures-util",
+    "dep:rust_decimal",
+    "sqlx/runtime-tokio",
+    "sqlx/tls-rustls",
+    "sqlx/chrono",
+    "sqlx/uuid",
+    "sqlx/rust_decimal",
+    "sqlx/json",
+]
 
 [dependencies]
 serde.workspace = true
@@ -77,6 +102,14 @@ uuid = { workspace = true, optional = true }
 # blocking a read forever — see `open_client`. socket2 is the cross-platform
 # way to reach the keepalive socket options behind tokio's `TcpStream`.
 socket2 = { version = "0.5", optional = true }
+
+# --- sqlx drivers (features postgres/mysql/sqlite via `_sqlx-common`) -------
+# Default features are off; the runtime, TLS backend, and per-type decoders are
+# opted into through `_sqlx-common` above so a build only links what it uses.
+# `sqlx/sqlite` statically bundles the SQLite engine, so a desktop bundle needs
+# no system libsqlite3. `rust_decimal` backs lossless DECIMAL/NUMERIC handling.
+sqlx = { version = "0.8", default-features = false, optional = true }
+rust_decimal = { version = "1", optional = true }
 
 [dev-dependencies]
 # Hermetic temp files for the export golden tests. `tokio` (with the `macros`

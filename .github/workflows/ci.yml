@@ -103,3 +103,13 @@ jobs:
         # Integration tests are #[ignore]-d (need Docker) and run in
         # integration.yml, so this stays fast and dependency-free.
         run: cargo test --workspace
+
+      # The sqlx drivers are behind off-by-default features, so the default
+      # workspace build above does not compile or test them. SQLite is in-process
+      # (no Docker), so lint + run its unit and integration tests here to guard
+      # the driver and the shared sqlx layer on every PR.
+      - name: Lint sqlite driver (Clippy)
+        run: cargo clippy -p selene-core --features sqlite --all-targets -- -D warnings
+
+      - name: Tests (sqlite driver)
+        run: cargo test -p selene-core --features sqlite
