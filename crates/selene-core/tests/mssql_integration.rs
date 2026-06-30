@@ -1510,3 +1510,26 @@ async fn server_default_backup_dir_and_directory_listing() {
         .expect("listing a missing dir is not an error");
     assert!(empty.is_empty(), "missing directory yields no entries");
 }
+
+// ---------------------------------------------------------------------------
+// 14. delete a server-side file (the restore dialog's "delete after" option)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
+async fn delete_server_file_is_best_effort_when_xp_cmdshell_unavailable() {
+    let mut fixture = start_mssql().await;
+    let conn = fixture.conn.as_mut();
+
+    // The delete uses `xp_cmdshell`, which is disabled (and on this image's
+    // edition, unsupported) by default. Selene never enables it, so the delete
+    // must surface an `Err` — the command layer reports that as a non-fatal
+    // warning and the restore it followed still stands. Asserting the *failure*
+    // path here is deliberate: it proves we degrade gracefully on the common
+    // locked-down server rather than panic, hang, or silently "succeed".
+    let result = conn.delete_server_file("/tmp/selene_nonexistent.bak").await;
+    assert!(
+        result.is_err(),
+        "deleting a server file must fail (not silently succeed) when xp_cmdshell is off"
+    );
+}

@@ -307,3 +307,31 @@ pub(crate) async fn kill_session(client: &mut TiberiusClient, spid: i32) -> Resu
     // `spid` is a validated i32 (never user text), so splicing it is injection-safe.
     run_batch(client, &format!("KILL {spid}")).await
 }
+
+/// Best-effort delete of a single server-side file via `xp_cmdshell` — the only
+/// cross-platform way to remove an arbitrary file over a SQL connection (the
+/// folder/date-based `xp_delete_file` cannot target one file safely, and OLE
+/// automation is Windows-only).
+///
+/// **We never enable `xp_cmdshell`.** When it is disabled (the default) the
+/// server raises error 15281, which surfaces here as a `CoreError::Query`; the
+/// caller treats a delete failure as non-fatal (the restore already succeeded).
+///
+/// The shell command is chosen from the path's separator (`\` ⇒ Windows `del`,
+/// otherwise POSIX `rm`). The path is escaped for the shell, then the whole
+/// command is escaped again as a T-SQL string literal.
+pub(crate) async fn delete_server_file(
+    client: &mut TiberiusClient,
+    path: &str,
+) -> Result<(), CoreError> {
+    let cmd = if path.contains('\\') {
+        // Windows filenames cannot contain `"`, so double-quoting is sufficient.
+        format!("del /f /q \"{path}\"")
+    } else {
+        // POSIX: single-quote the path, escaping any embedded `'` as `'\''`.
+        let escaped = path.replace('\'', "'\\''");
+        format!("rm -f '{escaped}'")
+    };
+    let sql = format!("EXEC master.sys.xp_cmdshell N'{}'", quote_literal(&cmd));
+    run_batch(client, &sql).await
+}

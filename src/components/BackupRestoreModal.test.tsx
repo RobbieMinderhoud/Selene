@@ -19,6 +19,7 @@ vi.mock("../ipc/commands", () => ({
   backupCancel: vi.fn(),
   serverDefaultBackupDir: vi.fn(async () => ""),
   serverListDir: vi.fn(async () => []),
+  serverDeleteFile: vi.fn(async () => undefined),
 }));
 
 vi.mock("../ipc/channels", () => ({
@@ -30,6 +31,7 @@ import {
   databaseBackup,
   databaseRestore,
   restoreFilelist,
+  serverDeleteFile,
 } from "../ipc/commands";
 import type { BackupFile } from "../ipc/types";
 import { BackupModal } from "./BackupModal";
@@ -38,11 +40,13 @@ import { RestoreModal } from "./RestoreModal";
 const mockBackup = vi.mocked(databaseBackup);
 const mockRestore = vi.mocked(databaseRestore);
 const mockFilelist = vi.mocked(restoreFilelist);
+const mockDeleteFile = vi.mocked(serverDeleteFile);
 
 beforeEach(() => {
   mockBackup.mockReset();
   mockRestore.mockReset();
   mockFilelist.mockReset();
+  mockDeleteFile.mockReset();
 });
 
 describe("BackupModal", () => {
@@ -133,5 +137,37 @@ describe("RestoreModal", () => {
     expect(options).toEqual({ checksum: true });
     await waitFor(() => expect(onRestored).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
+    // Delete-after was not ticked, so the .bak is left in place.
+    expect(mockDeleteFile).not.toHaveBeenCalled();
+  });
+
+  it("deletes the backup file after restore when the option is ticked", async () => {
+    mockFilelist.mockResolvedValue(files);
+    mockRestore.mockResolvedValue({ elapsedMs: 9, cancelled: false });
+    mockDeleteFile.mockResolvedValue(undefined);
+    render(
+      <RestoreModal open sessionId="s1" target="Target" onClose={vi.fn()} />,
+    );
+
+    const src = screen.getByLabelText("Backup file path");
+    await userEvent.type(src, "/mnt/backups/source.bak");
+    fireEvent.blur(src);
+    await screen.findByText("Src");
+
+    await userEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Delete backup file after restoring/i,
+      }),
+    );
+    await userEvent.type(screen.getByPlaceholderText("Target"), "Target");
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+
+    await waitFor(() => expect(mockRestore).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockDeleteFile).toHaveBeenCalledWith(
+        "s1",
+        "/mnt/backups/source.bak",
+      ),
+    );
   });
 });

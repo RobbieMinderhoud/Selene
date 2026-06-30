@@ -481,6 +481,25 @@ pub async fn server_list_dir(
     Ok(session.conn.list_server_dir(&path).await?)
 }
 
+/// Delete a single file on the **server's** filesystem (used for the restore
+/// dialog's "delete backup after restoring" option). Best-effort: it relies on
+/// `xp_cmdshell` being enabled on the server and never changes that setting, so
+/// a refusal surfaces as an error the caller treats as non-fatal.
+#[tauri::command]
+pub async fn server_delete_file(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<(), IpcError> {
+    let mut sessions = state.sessions.lock().await;
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| IpcError::unknown_session(&session_id))?;
+    session.conn.delete_server_file(&path).await?;
+    tracing::info!(%session_id, "server file deleted");
+    Ok(())
+}
+
 /// Request cancellation of an in-flight backup or restore.
 ///
 /// Flips the operation's cancel token; the poller observes it and `KILL`s the

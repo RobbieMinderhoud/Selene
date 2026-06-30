@@ -413,6 +413,15 @@ pub trait Connection: Send {
             "kill_session is not supported by this driver".into(),
         ))
     }
+
+    /// Delete a single file on the **server's** filesystem (e.g. a `.bak` after a
+    /// restore). Best-effort and may be refused by server policy (the driver must
+    /// never relax security settings to do it). Drivers must escape the path.
+    async fn delete_server_file(&mut self, _path: &str) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "delete_server_file is not supported by this driver".into(),
+        ))
+    }
 }
 
 /// A database backend: opens connections and advertises its capabilities.

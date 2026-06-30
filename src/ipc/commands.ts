@@ -484,6 +484,18 @@ export function serverListDir(
   return invoke("server_list_dir", { sessionId, path });
 }
 
+/**
+ * `server_delete_file` -> delete a single file on the server host (the restore
+ * dialog's "delete backup after restoring" option). Best-effort: rejects if the
+ * server's `xp_cmdshell` is disabled — callers treat that as non-fatal.
+ */
+export function serverDeleteFile(
+  sessionId: string,
+  path: string,
+): Promise<void> {
+  return invoke("server_delete_file", { sessionId, path });
+}
+
 // --- Filesystem (file-backed tabs + workspace folders) --------------------
 
 /** `file_read` -> a text file's contents (UTF-8). */

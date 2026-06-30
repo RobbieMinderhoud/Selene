@@ -508,4 +508,8 @@ impl Connection for MssqlConnection {
     async fn kill_session(&mut self, spid: i32) -> Result<(), CoreError> {
         backup::kill_session(&mut self.client, spid).await
     }
+
+    async fn delete_server_file(&mut self, path: &str) -> Result<(), CoreError> {
+        backup::delete_server_file(&mut self.client, path).await
+    }
 }

@@ -233,6 +233,7 @@ pub fn run() {
             commands::backup::backup_cancel,
             commands::backup::server_default_backup_dir,
             commands::backup::server_list_dir,
+            commands::backup::server_delete_file,
             // Filesystem (file-backed tabs + workspace folders)
             commands::fs::file_read,
             commands::fs::file_write,

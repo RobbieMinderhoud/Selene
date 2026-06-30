@@ -18,11 +18,12 @@ import {
   databaseRestore,
   restoreFilelist,
   serverDefaultBackupDir,
+  serverDeleteFile,
 } from "../ipc/commands";
 import { createRestoreChannel } from "../ipc/channels";
 import { asIpcError, type BackupFile } from "../ipc/types";
 import { useSettingsStore } from "../state/settingsStore";
-import { toastInfo, toastSuccess } from "../state/toastStore";
+import { toastError, toastInfo, toastSuccess } from "../state/toastStore";
 import { Modal } from "./Modal";
 import { OperationProgress } from "./OperationProgress";
 import { ServerPathBrowser } from "./ServerPathBrowser";
@@ -69,6 +70,7 @@ export function RestoreModal({
   const [files, setFiles] = useState<BackupFile[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [checksum, setChecksum] = useState(defaultChecksum);
+  const [deleteAfter, setDeleteAfter] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [percent, setPercent] = useState<number | null>(null);
@@ -81,6 +83,7 @@ export function RestoreModal({
     setFiles(null);
     setFilesError(null);
     setChecksum(defaultChecksum);
+    setDeleteAfter(false);
     setConfirmText("");
     setPhase("idle");
     setPercent(null);
@@ -138,9 +141,23 @@ export function RestoreModal({
       );
       if (summary.cancelled) {
         toastInfo("Restore cancelled");
-      } else {
-        toastSuccess(`Restored over "${target}"`);
-        onRestored?.();
+        onClose();
+        return;
+      }
+      toastSuccess(`Restored over "${target}"`);
+      onRestored?.();
+      // Optional cleanup: delete the .bak from the server. Best-effort — a
+      // failure (e.g. xp_cmdshell disabled) does not undo the successful restore.
+      if (deleteAfter) {
+        try {
+          await serverDeleteFile(sessionId, src);
+          toastInfo("Backup file deleted");
+        } catch (e) {
+          toastError(
+            "Restore succeeded, but the backup file was not deleted",
+            asIpcError(e).message,
+          );
+        }
       }
       onClose();
     } catch (e) {
@@ -243,6 +260,21 @@ export function RestoreModal({
             <span>Checksum</span>
             <span className={styles.help}>
               Verify page checksums while restoring.
+            </span>
+          </span>
+        </label>
+        <label className={styles.option}>
+          <input
+            type="checkbox"
+            checked={deleteAfter}
+            disabled={running}
+            onChange={(e) => setDeleteAfter(e.target.checked)}
+          />
+          <span className={styles.optionText}>
+            <span>Delete backup file after restoring</span>
+            <span className={styles.help}>
+              Removes the .bak from the server (needs xp_cmdshell enabled). The
+              restore is unaffected if deletion fails.
             </span>
           </span>
         </label>
