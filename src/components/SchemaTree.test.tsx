@@ -47,6 +47,10 @@ const capabilities: SessionInfo["capabilities"] = {
   streaming_rows: true,
   list_databases: true,
   data_editing: false,
+  backup_restore: true,
+  database_create_drop: true,
+  database_rename: true,
+  database_online_offline: true,
 };
 
 const session: LiveSession = {
@@ -221,5 +225,75 @@ describe("SchemaTree lazy loading", () => {
       ),
     );
     expect(mockRename).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("SchemaTree capability gating", () => {
+  function sessionWithCaps(
+    overrides: Partial<SessionInfo["capabilities"]>,
+  ): LiveSession {
+    return {
+      ...session,
+      info: {
+        ...session.info,
+        capabilities: { ...capabilities, ...overrides },
+      },
+    };
+  }
+
+  it("omits every backup/admin item when the driver supports none of them", async () => {
+    const limited = sessionWithCaps({
+      backup_restore: false,
+      database_create_drop: false,
+      database_rename: false,
+      database_online_offline: false,
+    });
+    renderTree(<SchemaTree session={limited} onDisconnect={vi.fn()} />);
+
+    const dbRow = (await screen.findByText("AppDb")).closest(
+      '[role="treeitem"]',
+    ) as HTMLElement;
+    fireEvent.contextMenu(dbRow);
+
+    // Every item is gated off, so no context menu opens at all.
+    for (const label of [
+      "Back Up…",
+      "Restore…",
+      "Rename…",
+      "Drop…",
+      "Take offline",
+    ]) {
+      expect(
+        screen.queryByRole("menuitem", { name: label }),
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it("shows only the supported subset (backup/restore, no admin)", async () => {
+    const backupOnly = sessionWithCaps({
+      backup_restore: true,
+      database_create_drop: false,
+      database_rename: false,
+      database_online_offline: false,
+    });
+    renderTree(<SchemaTree session={backupOnly} onDisconnect={vi.fn()} />);
+
+    const dbRow = (await screen.findByText("AppDb")).closest(
+      '[role="treeitem"]',
+    ) as HTMLElement;
+    fireEvent.contextMenu(dbRow);
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Back Up…" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "Restore…" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: "Rename…" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: "Drop…" }),
+    ).not.toBeInTheDocument();
   });
 });

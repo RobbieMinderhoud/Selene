@@ -423,7 +423,8 @@ function DatabaseNode({
   // where the spinner stops animating.
   const [busy, setBusy] = useState<string | null>(null);
   const sessionId = session.info.sessionId;
-  const hasSchemas = session.info.capabilities.schemas;
+  const caps = session.info.capabilities;
+  const hasSchemas = caps.schemas;
   const openMenu = useContext(MenuContext);
   const requestConfirm = useContext(ConfirmContext);
   const query = useContext(FilterContext);
@@ -512,33 +513,43 @@ function DatabaseNode({
   }
 
   function openContextMenu(e: React.MouseEvent) {
-    const items: ContextMenuItem[] = [
-      {
+    // Each item is gated by the driver's capability flag: a backend that doesn't
+    // support the operation (its Connection trait method defaults to Unsupported)
+    // must not offer it at all, rather than show an item that fails on click.
+    const items: ContextMenuItem[] = [];
+    if (caps.database_rename) {
+      items.push({
         label: "Rename…",
         disabled: !canManage,
         onSelect: () => {
           setDraft(database.name);
           setRenaming(true);
         },
-      },
-      isOnline
-        ? {
-            label: "Take offline",
-            disabled: !canManage,
-            onSelect: () =>
-              requestConfirm({
-                title: "Take database offline",
-                confirmLabel: "Take offline",
-                message: `Take "${database.name}" offline? This immediately terminates all connections to it (ROLLBACK IMMEDIATE).`,
-                onConfirm: () => void setOnline(false),
-              }),
-          }
-        : {
-            label: "Bring online",
-            disabled: !canManage,
-            onSelect: () => void setOnline(true),
-          },
-      {
+      });
+    }
+    if (caps.database_online_offline) {
+      items.push(
+        isOnline
+          ? {
+              label: "Take offline",
+              disabled: !canManage,
+              onSelect: () =>
+                requestConfirm({
+                  title: "Take database offline",
+                  confirmLabel: "Take offline",
+                  message: `Take "${database.name}" offline? This immediately terminates all connections to it (ROLLBACK IMMEDIATE).`,
+                  onConfirm: () => void setOnline(false),
+                }),
+            }
+          : {
+              label: "Bring online",
+              disabled: !canManage,
+              onSelect: () => void setOnline(true),
+            },
+      );
+    }
+    if (caps.database_create_drop) {
+      items.push({
         label: "Drop…",
         disabled: !canManage,
         onSelect: () =>
@@ -549,22 +560,32 @@ function DatabaseNode({
             requireText: database.name,
             onConfirm: () => void drop(),
           }),
-      },
-      // Backup only reads the database, so it is allowed on read-only
-      // connections and system databases — it just needs the database online.
-      {
-        label: "Back Up…",
-        disabled: !isOnline,
-        onSelect: () => setBackupOpen(true),
-      },
-      // Restore overwrites the database, so it follows the same rules as Drop
-      // (no system DBs, no read-only connection) and needs the target online.
-      {
-        label: "Restore…",
-        disabled: !canManage || !isOnline,
-        onSelect: () => setRestoreOpen(true),
-      },
-    ];
+      });
+    }
+    if (caps.backup_restore) {
+      items.push(
+        // Backup only reads the database, so it is allowed on read-only
+        // connections and system databases — it just needs the database online.
+        {
+          label: "Back Up…",
+          disabled: !isOnline,
+          onSelect: () => setBackupOpen(true),
+        },
+        // Restore overwrites the database, so it follows the same rules as Drop
+        // (no system DBs, no read-only connection) and needs the target online.
+        {
+          label: "Restore…",
+          disabled: !canManage || !isOnline,
+          onSelect: () => setRestoreOpen(true),
+        },
+      );
+    }
+    // Nothing this driver supports — suppress the (otherwise empty) menu and the
+    // native one.
+    if (items.length === 0) {
+      e.preventDefault();
+      return;
+    }
     openMenu(e, items);
   }
 
@@ -725,6 +746,11 @@ export function SchemaTree({
   }
 
   function openServerMenu(e: React.MouseEvent) {
+    // Only drivers that support creating databases get a server-row menu.
+    if (!session.info.capabilities.database_create_drop) {
+      e.preventDefault();
+      return;
+    }
     openMenu(e, [
       {
         label: "New database…",

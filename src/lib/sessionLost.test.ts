@@ -24,6 +24,10 @@ function sessionInfo(sessionId: string): SessionInfo {
       streaming_rows: true,
       list_databases: true,
       data_editing: false,
+      backup_restore: true,
+      database_create_drop: true,
+      database_rename: true,
+      database_online_offline: true,
     },
   };
 }
