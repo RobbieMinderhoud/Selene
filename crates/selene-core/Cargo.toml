@@ -125,4 +125,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `mcr.microsoft.com/mssql/server` image with EULA/SA-password handling and a
 # readiness wait baked in. These are dev-only deps and never ship in the crate.
 testcontainers = "0.27"
-testcontainers-modules = { version = "0.15", features = ["mssql_server"] }
+testcontainers-modules = { version = "0.15", features = ["mssql_server", "postgres"] }
