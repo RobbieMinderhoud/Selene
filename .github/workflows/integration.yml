@@ -1,9 +1,9 @@
 name: Integration tests
 
-# Dockerized MSSQL integration tests: testcontainers spins up a real SQL Server
-# (ephemeral host port, no 1433 clash). Kept off the per-PR path to keep PR
-# feedback fast and avoid the ~1.5GB image pull on every PR — runs nightly and
-# on demand from the Actions tab.
+# Dockerized integration tests: testcontainers spins up real SQL Server and
+# PostgreSQL servers (ephemeral host ports, no 1433/5432 clash). Kept off the
+# per-PR path to keep PR feedback fast and avoid the image pulls on every PR —
+# runs nightly and on demand from the Actions tab.
 on:
   schedule:
     - cron: "0 3 * * *" # 03:00 UTC daily
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   integration:
-    name: MSSQL integration
+    name: Database integration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -40,9 +40,13 @@ jobs:
       # selene-core has zero Tauri dependency, so no WebKitGTK/GTK deps are
       # needed here. testcontainers talks to the Docker daemon that is
       # preinstalled on GitHub's ubuntu runners.
-      # Scope to the mssql_integration test binary: a bare `-- --ignored` would
-      # also run the lib's `live_keychain_round_trip` test, which is
+      # Scope each step to its own integration test binary: a bare `-- --ignored`
+      # would also run the lib's `live_keychain_round_trip` test, which is
       # `#[ignore = "...run manually"]` and needs a real Secret Service daemon
-      # (absent on headless runners).
-      - name: Run integration tests
+      # (absent on headless runners). The two drivers are run as separate steps
+      # so each enables only its own backend feature.
+      - name: Run MSSQL integration tests
         run: cargo test -p selene-core --features mssql --test mssql_integration -- --ignored
+
+      - name: Run PostgreSQL integration tests
+        run: cargo test -p selene-core --features postgres --test postgres_integration -- --ignored

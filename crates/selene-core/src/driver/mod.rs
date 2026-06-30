@@ -34,6 +34,9 @@ pub mod mssql;
 #[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
 mod shared;
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
+
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
@@ -463,10 +466,12 @@ pub fn driver_for(id: DriverId) -> Result<Box<dyn DatabaseDriver>, CoreError> {
     match id {
         #[cfg(feature = "mssql")]
         DriverId::Mssql => Ok(Box::new(mssql::MssqlDriver::new())),
+        #[cfg(feature = "postgres")]
+        DriverId::Postgres => Ok(Box::new(postgres::PostgresDriver::new())),
         #[cfg(feature = "sqlite")]
         DriverId::Sqlite => Ok(Box::new(sqlite::SqliteDriver::new())),
-        // Postgres/MySQL feature-gating is wired (see `shared`), but no driver
-        // is registered yet — they fall through to Unsupported until implemented.
+        // MySQL feature-gating is wired (see `shared`), but no driver is
+        // registered yet — it falls through to Unsupported until implemented.
         other => Err(CoreError::Unsupported(format!(
             "driver {other:?} is not available in this build"
         ))),

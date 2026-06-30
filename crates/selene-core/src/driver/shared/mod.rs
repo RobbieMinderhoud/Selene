@@ -12,11 +12,14 @@
 //! Everything is `pub(crate)`: this is internal driver scaffolding, not part of
 //! `selene-core`'s public API.
 //!
-//! > A shared value-formatting module (ISO datetimes, lossless decimals) is
-//! > intentionally **not** here yet: SQLite stores temporal/decimal data as
-//! > TEXT (no native storage class), so it formats nothing through such helpers.
-//! > It will be added when Postgres/MySQL — which decode native `NaiveDateTime`/
-//! > `Decimal` values — need it, keeping this module free of dead code today.
+//! [`convert`] holds the value formatters (ISO-8601 datetimes, lossless decimal
+//! strings) that the native-typed sqlx drivers need. SQLite stores temporal/
+//! decimal data as TEXT (no native chrono/`Decimal` decode), so it does not use
+//! them — Postgres (and later MySQL) do, decoding `chrono`/`rust_decimal` values
+//! and formatting them here, which keeps a single culture-independent rendering
+//! shared across the sqlx backends.
 
+#[cfg(any(feature = "postgres", feature = "mysql"))]
+pub(crate) mod convert;
 pub(crate) mod pump;
 pub(crate) mod sub_batch;
