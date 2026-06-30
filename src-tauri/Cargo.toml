@@ -16,7 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-selene-core = { path = "../crates/selene-core" }
+selene-core = { path = "../crates/selene-core", features = ["postgres", "mysql", "sqlite"] }
 tauri = { version = "2", features = [] }
 # `dialog` gives the frontend a native save-file picker for exports.
 tauri-plugin-dialog = "2"

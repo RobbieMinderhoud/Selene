@@ -12,6 +12,7 @@ import type { EditorView } from "@codemirror/view";
 import { sessionCurrentDatabase, sessionUseDatabase } from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
 import type { GuardVerdict } from "../ipc/types";
+import { driverLabel } from "../lib/driverMeta";
 import { cancelQuery, runQuery } from "../lib/runQuery";
 import { useConnections, useSchemaTables } from "../lib/queries";
 import { makeSchemaCompletionSource } from "../lib/sqlCompletion";
@@ -316,7 +317,7 @@ export function EditorPane({ tabId }: EditorPaneProps) {
             </div>
             {session && (
               <span className={styles.caps} title="Driver capabilities">
-                {session.info.driver.toUpperCase()}
+                {driverLabel(session.info.driver)}
               </span>
             )}
           </div>
@@ -325,6 +326,7 @@ export function EditorPane({ tabId }: EditorPaneProps) {
               tabId={tabId}
               onRun={handleRun}
               schemaSource={schemaSource}
+              driver={session?.info.driver}
               viewRef={editorViewRef}
             />
           </div>

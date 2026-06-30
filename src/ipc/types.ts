@@ -323,17 +323,18 @@ export type MultiEvent =
 // Connection / session types
 // ---------------------------------------------------------------------------
 
-/** Backend driver id (lowercase scalar). Only `mssql` is live in v0.1. */
-export type DriverId = "mssql";
+/** Backend driver id (lowercase scalar). All four sqlx/tiberius drivers are live. */
+export type DriverId = "mssql" | "postgres" | "mysql" | "sqlite";
 
 /**
- * How to authenticate. Tagged by `method` (snake_case). Only `sql_login` exists
- * today; the Rust enum is `#[non_exhaustive]` for future Windows/Entra auth.
+ * How to authenticate. A discriminated union tagged by `method` (snake_case),
+ * mirroring the Rust `AuthMethod`: `sql_login` carries a username; `none` is for
+ * backends without authentication (e.g. a local SQLite file). The Rust enum is
+ * `#[non_exhaustive]` for future Windows/Entra auth.
  */
-export interface AuthMethod {
-  method: "sql_login";
-  username: string;
-}
+export type AuthMethod =
+  | { method: "sql_login"; username: string }
+  | { method: "none" };
 
 /** Transport security settings (snake_case fields). */
 export interface TlsConfig {

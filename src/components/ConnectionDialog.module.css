@@ -26,6 +26,23 @@
   flex-shrink: 0;
 }
 
+/* The SQLite "Database file" path input + its Browse button on one line. */
+.fileRow {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.fileRow button {
+  flex-shrink: 0;
+}
+
+.hint {
+  margin-top: var(--sp-1);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
 .toggles {
   display: flex;
   flex-direction: column;
