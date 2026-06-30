@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::backup::{BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions};
 use crate::capabilities::DriverCapabilities;
 use crate::connection_spec::{ConnectionSpec, DriverId};
 use crate::error::CoreError;
@@ -303,6 +304,94 @@ pub trait Connection: Send {
     ) -> Result<u64, CoreError> {
         Err(CoreError::Unsupported(
             "import_rows is not supported by this driver".into(),
+        ))
+    }
+
+    /// Back up `database` to the server-side file `to_path` (a path on the
+    /// **database server's** filesystem, not the client's). Honours `cancel`
+    /// only cooperatively via the hard-stop the Tauri layer issues (the backup
+    /// is a single statement); progress is observed out-of-band by polling
+    /// [`backup_percent_complete`](Self::backup_percent_complete). Drivers must
+    /// bracket-quote the database name and escape `to_path` as a string literal.
+    async fn backup_database(
+        &mut self,
+        _database: &str,
+        _to_path: &str,
+        _opts: &BackupOptions,
+        _cancel: &CancelToken,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "backup_database is not supported by this driver".into(),
+        ))
+    }
+
+    /// List the logical files contained in the backup at `from_path`
+    /// (`RESTORE FILELISTONLY`). Used to preview a `.bak` and to plan `MOVE`
+    /// relocations for a restore.
+    async fn restore_filelist(&mut self, _from_path: &str) -> Result<Vec<BackupFile>, CoreError> {
+        Err(CoreError::Unsupported(
+            "restore_filelist is not supported by this driver".into(),
+        ))
+    }
+
+    /// List the current physical files of an existing `database`
+    /// (`sys.master_files`), used as relocation targets when restoring over it.
+    async fn database_files(&mut self, _database: &str) -> Result<Vec<DbFile>, CoreError> {
+        Err(CoreError::Unsupported(
+            "database_files is not supported by this driver".into(),
+        ))
+    }
+
+    /// The server's default data/log directories, used as a fallback when a
+    /// restore relocation target cannot be derived from the target database.
+    async fn default_file_dirs(&mut self) -> Result<DefaultDirs, CoreError> {
+        Err(CoreError::Unsupported(
+            "default_file_dirs is not supported by this driver".into(),
+        ))
+    }
+
+    /// Restore the backup at `from_path` **over** the existing database
+    /// `target` (`RESTORE … WITH REPLACE`), relocating each file per `moves`.
+    /// The target is taken single-user for the duration and returned to
+    /// multi-user afterwards (even on failure). Drivers must bracket-quote the
+    /// database name and escape all paths/logical names as string literals.
+    async fn restore_database(
+        &mut self,
+        _target: &str,
+        _from_path: &str,
+        _moves: &[FileMove],
+        _opts: &RestoreOptions,
+        _cancel: &CancelToken,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "restore_database is not supported by this driver".into(),
+        ))
+    }
+
+    /// The server-assigned session id (`@@SPID`) of this connection, used to
+    /// correlate the running backup/restore in `sys.dm_exec_requests`.
+    async fn current_session_id(&mut self) -> Result<i32, CoreError> {
+        Err(CoreError::Unsupported(
+            "current_session_id is not supported by this driver".into(),
+        ))
+    }
+
+    /// The `percent_complete` of the request running on session `spid`
+    /// (`sys.dm_exec_requests`), or `None` if no such request is active. Called
+    /// on a *separate* connection while a backup/restore runs. Requires
+    /// `VIEW SERVER STATE`; a permission error should surface as an `Err` so the
+    /// caller can fall back to indeterminate progress.
+    async fn backup_percent_complete(&mut self, _spid: i32) -> Result<Option<f32>, CoreError> {
+        Err(CoreError::Unsupported(
+            "backup_percent_complete is not supported by this driver".into(),
+        ))
+    }
+
+    /// Terminate the server session `spid` (`KILL`). Best-effort cancellation of
+    /// a backup/restore, issued from a separate connection.
+    async fn kill_session(&mut self, _spid: i32) -> Result<(), CoreError> {
+        Err(CoreError::Unsupported(
+            "kill_session is not supported by this driver".into(),
         ))
     }
 }

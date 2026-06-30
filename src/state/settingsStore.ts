@@ -86,6 +86,15 @@ export interface Settings {
     /** Abort the whole import on the first bad row (transactional). */
     atomic: boolean;
   };
+  /** Defaults for the database Back Up… dialog. Each is editable per backup. */
+  backup: {
+    /** `WITH COMPRESSION` (Enterprise/Standard; ignored editions error clearly). */
+    compression: boolean;
+    /** `WITH CHECKSUM` — verify/compute page checksums during backup. */
+    checksum: boolean;
+    /** Run `RESTORE VERIFYONLY` after the backup to confirm it is readable. */
+    verifyAfter: boolean;
+  };
   /** "Run on multiple targets" defaults. */
   multiTarget: {
     /** Pre-fills the database-filter editor for a new multi-target view. */
@@ -143,6 +152,11 @@ const DEFAULTS: Settings = {
     hasHeader: true,
     emptyAsNull: true,
     atomic: true,
+  },
+  backup: {
+    compression: true,
+    checksum: true,
+    verifyAfter: false,
   },
   multiTarget: {
     // Generic default: all non-system, online databases. Edit per run, or set
@@ -228,6 +242,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           connection: merged.connection,
           export: merged.export,
           import: merged.import,
+          backup: merged.backup,
           multiTarget: merged.multiTarget,
         }),
       );
@@ -254,6 +269,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           connection: merged.connection,
           export: merged.export,
           import: merged.import,
+          backup: merged.backup,
           multiTarget: merged.multiTarget,
         }),
       );

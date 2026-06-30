@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod backup;
 pub mod capabilities;
 pub mod connection_spec;
 pub mod driver;
@@ -20,6 +21,9 @@ pub mod secret;
 pub mod secrets;
 pub mod value;
 
+pub use backup::{
+    plan_moves, BackupFile, BackupOptions, DbFile, DefaultDirs, FileMove, RestoreOptions,
+};
 pub use capabilities::DriverCapabilities;
 pub use connection_spec::{AuthMethod, ConnectionSpec, DriverId, TlsConfig};
 pub use driver::{

@@ -24,6 +24,7 @@
 // The `tauri::command` macro emits sibling helper items next to each function;
 // a `pub use` re-export does not bring those helpers along, so the macro must
 // see the function at its defining path.
+pub mod backup;
 pub mod connection;
 pub mod export;
 pub mod fs;
@@ -92,6 +93,50 @@ pub enum ExportEvent {
     /// The export finished successfully; `rows` is the final written count.
     Done { rows: u64 },
     /// The export failed. `message` is sanitized and secret-free.
+    Failed { message: String },
+}
+
+/// Streaming progress events emitted by
+/// [`database_backup`](backup::database_backup) over a `tauri::ipc::Channel`.
+/// Internally tagged (`kind`), `camelCase` fields.
+///
+/// Lifecycle: `Started` → `Progress`* → (`Done` | `Cancelled` | `Failed`).
+/// `Progress.percent` is the server's `percent_complete` (0–100), observed by
+/// polling a *second* connection; it may not appear at all (e.g. the polling
+/// connection lacks `VIEW SERVER STATE`), in which case the UI shows
+/// indeterminate progress.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BackupEvent {
+    /// The backup was accepted; carries the id used to cancel it.
+    #[serde(rename_all = "camelCase")]
+    Started { operation_id: String },
+    /// Server-reported completion percentage (0–100).
+    Progress { percent: f32 },
+    /// The backup finished successfully.
+    Done,
+    /// The backup was cancelled; the underlying session connection was dropped.
+    Cancelled,
+    /// The backup failed. `message` is sanitized and secret-free.
+    Failed { message: String },
+}
+
+/// Streaming progress events emitted by
+/// [`database_restore`](backup::database_restore) over a `tauri::ipc::Channel`.
+/// Same shape and semantics as [`BackupEvent`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum RestoreEvent {
+    /// The restore was accepted; carries the id used to cancel it.
+    #[serde(rename_all = "camelCase")]
+    Started { operation_id: String },
+    /// Server-reported completion percentage (0–100).
+    Progress { percent: f32 },
+    /// The restore finished successfully.
+    Done,
+    /// The restore was cancelled; the database may be left in a restoring state.
+    Cancelled,
+    /// The restore failed. `message` is sanitized and secret-free.
     Failed { message: String },
 }
 

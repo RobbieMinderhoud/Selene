@@ -38,9 +38,9 @@ use testcontainers_modules::mssql_server::MssqlServer;
 
 use selene_core::driver::driver_for;
 use selene_core::{
-    AuthMethod, CancelToken, CellValue, Column, Connection, CoreError, CsvImportOptions,
-    CsvRowSource, DestColumn, DriverId, ExecOptions, ExportFormat, Exporter, Flow, ImportTarget,
-    LogicalType, NewColumn, RowSink, TemporalKind, TlsConfig,
+    plan_moves, AuthMethod, BackupOptions, CancelToken, CellValue, Column, Connection, CoreError,
+    CsvImportOptions, CsvRowSource, DestColumn, DriverId, ExecOptions, ExportFormat, Exporter,
+    Flow, ImportTarget, LogicalType, NewColumn, RestoreOptions, RowSink, TemporalKind, TlsConfig,
 };
 use selene_core::{ConnectionSpec, Secret};
 
@@ -1366,4 +1366,111 @@ async fn skip_mode_imports_good_rows_and_reports_skips() {
     .await;
     let rows = sink.sets()[0].rows.clone();
     assert_eq!(rows, vec![vec![CellValue::I64(1)], vec![CellValue::I64(3)]]);
+}
+
+// ---------------------------------------------------------------------------
+// 12. backup + restore: back up one database and restore it OVER another
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires Docker; run with --ignored"]
+async fn backup_then_restore_over_existing_database() {
+    let mut fixture = start_mssql().await;
+    let conn = fixture.conn.as_mut();
+
+    // Source database with a known row.
+    exec_ok(conn, "CREATE DATABASE selene_bak_src").await;
+    exec_ok(
+        conn,
+        "USE selene_bak_src; \
+         CREATE TABLE dbo.payload (id INT NOT NULL, tag NVARCHAR(20) NOT NULL); \
+         INSERT INTO dbo.payload (id, tag) VALUES (42, N'from-source')",
+    )
+    .await;
+
+    // A separate, existing target with *different* contents — this is the
+    // database the backup will be laid over. CREATE DATABASE and a `USE` of the
+    // new database cannot share one batch (the `USE` can't bind a database that
+    // does not exist at compile time), so they are two statements.
+    exec_ok(conn, "USE master; CREATE DATABASE selene_bak_tgt").await;
+    exec_ok(
+        conn,
+        "USE selene_bak_tgt; \
+         CREATE TABLE dbo.other (x INT NOT NULL); \
+         INSERT INTO dbo.other (x) VALUES (7)",
+    )
+    .await;
+
+    // Back up the source to a path the container's mssql process can write.
+    let bak = "/var/opt/mssql/data/selene_src.bak";
+    conn.backup_database(
+        "selene_bak_src",
+        bak,
+        &BackupOptions {
+            compression: false,
+            checksum: true,
+            verify_after: true,
+        },
+        &CancelToken::new(),
+    )
+    .await
+    .expect("backup_database");
+
+    // FILELISTONLY exposes the source's files: at least one data + one log.
+    let backup_files = conn.restore_filelist(bak).await.expect("restore_filelist");
+    assert!(
+        backup_files.iter().any(|f| f.is_data()),
+        "backup should contain a data file"
+    );
+    assert!(
+        backup_files.iter().any(|f| f.is_log()),
+        "backup should contain a log file"
+    );
+
+    // Plan MOVE relocations onto the target's current files, then restore.
+    let target_files = conn
+        .database_files("selene_bak_tgt")
+        .await
+        .expect("database_files");
+    let default_dirs = conn.default_file_dirs().await.expect("default_file_dirs");
+    let moves = plan_moves(
+        &backup_files,
+        &target_files,
+        &default_dirs,
+        "selene_bak_tgt",
+    );
+    conn.restore_database(
+        "selene_bak_tgt",
+        bak,
+        &moves,
+        &RestoreOptions { checksum: true },
+        &CancelToken::new(),
+    )
+    .await
+    .expect("restore_database");
+
+    // The target now holds the *source's* schema and data, under its own name.
+    let (_outcome, sink) = run(
+        conn,
+        "SELECT id, tag FROM selene_bak_tgt.dbo.payload ORDER BY id",
+        &ExecOptions::default(),
+    )
+    .await;
+    let rows = sink.sets()[0].rows.clone();
+    assert_eq!(
+        rows,
+        vec![vec![
+            CellValue::I64(42),
+            CellValue::String("from-source".into()),
+        ]],
+        "restored target should contain the source backup's row"
+    );
+
+    // It is online and usable after the restore (multi-user restored).
+    let dbs = conn.list_databases().await.expect("list after restore");
+    let tgt = dbs
+        .iter()
+        .find(|d| d.name == "selene_bak_tgt")
+        .expect("target listed");
+    assert_eq!(tgt.state_desc, "ONLINE");
 }

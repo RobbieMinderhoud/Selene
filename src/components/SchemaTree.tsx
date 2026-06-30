@@ -37,8 +37,10 @@ import { useEditorStore } from "../state/editorStore";
 import { useImportStore } from "../state/importStore";
 import type { LiveSession } from "../state/sessionStore";
 import { toastError } from "../state/toastStore";
+import { BackupModal } from "./BackupModal";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { Modal } from "./Modal";
+import { RestoreModal } from "./RestoreModal";
 import {
   CaretIcon,
   ColumnIcon,
@@ -413,6 +415,8 @@ function DatabaseNode({
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [draft, setDraft] = useState(database.name);
   // While a management op runs, the row shows a spinner + this status label
   // (e.g. "renaming…"). The label is what carries meaning under reduced motion,
@@ -433,6 +437,19 @@ function DatabaseNode({
 
   function refresh() {
     return queryClient.invalidateQueries({ queryKey: qk.databases(sessionId) });
+  }
+
+  // A restore replaces the database's contents, so any cached schema/table
+  // listing under it is stale — drop those (prefix match) along with the
+  // database list so a re-expand reloads fresh data.
+  function refreshAfterRestore() {
+    void refresh();
+    void queryClient.invalidateQueries({
+      queryKey: ["schemas", sessionId, database.name],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["tables", sessionId, database.name],
+    });
   }
 
   function commitRename() {
@@ -533,6 +550,20 @@ function DatabaseNode({
             onConfirm: () => void drop(),
           }),
       },
+      // Backup only reads the database, so it is allowed on read-only
+      // connections and system databases — it just needs the database online.
+      {
+        label: "Back Up…",
+        disabled: !isOnline,
+        onSelect: () => setBackupOpen(true),
+      },
+      // Restore overwrites the database, so it follows the same rules as Drop
+      // (no system DBs, no read-only connection) and needs the target online.
+      {
+        label: "Restore…",
+        disabled: !canManage || !isOnline,
+        onSelect: () => setRestoreOpen(true),
+      },
     ];
     openMenu(e, items);
   }
@@ -610,6 +641,19 @@ function DatabaseNode({
             depth={depth + 1}
           />
         ))}
+      <BackupModal
+        open={backupOpen}
+        sessionId={sessionId}
+        database={database.name}
+        onClose={() => setBackupOpen(false)}
+      />
+      <RestoreModal
+        open={restoreOpen}
+        sessionId={sessionId}
+        target={database.name}
+        onClose={() => setRestoreOpen(false)}
+        onRestored={refreshAfterRestore}
+      />
     </>
   );
 }

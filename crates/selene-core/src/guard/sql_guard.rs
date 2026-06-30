@@ -635,6 +635,8 @@ fn classify_ddl(stmt: &str, level: &mut GuardLevel, reasons: &mut Vec<String>) {
     match kw.as_str() {
         "TRUNCATE" => push_unique(reasons, "TRUNCATE removes all rows"),
         "DROP" => push_unique(reasons, "DROP permanently removes a database object"),
+        "RESTORE" => push_unique(reasons, "RESTORE overwrites the database from a backup"),
+        "BACKUP" => push_unique(reasons, "BACKUP writes the database to a server-side file"),
         other => push_unique(reasons, &format!("{other} is a schema/elevated operation")),
     }
 }
@@ -649,9 +651,8 @@ fn leading_kind(stmt: &str) -> Kind {
     match upper.as_str() {
         "SELECT" | "WITH" | "SHOW" | "EXPLAIN" | "PRINT" | "DECLARE" | "SET" | "USE" => Kind::Read,
         "INSERT" | "UPDATE" | "DELETE" | "MERGE" => Kind::Dml,
-        "DROP" | "TRUNCATE" | "ALTER" | "CREATE" | "GRANT" | "REVOKE" | "EXEC" | "EXECUTE" => {
-            Kind::Ddl
-        }
+        "DROP" | "TRUNCATE" | "ALTER" | "CREATE" | "GRANT" | "REVOKE" | "EXEC" | "EXECUTE"
+        | "BACKUP" | "RESTORE" => Kind::Ddl,
         _ => Kind::Unknown,
     }
 }
@@ -1221,6 +1222,25 @@ mod tests {
         // No trailing ROLLBACK: normal classification applies.
         let no_rb = classify_rw("BEGIN TRAN UPDATE t SET x = 1");
         assert_eq!(no_rb.level, GuardLevel::Confirm);
+    }
+
+    #[test]
+    fn backup_and_restore_are_recognised_ddl_not_unrecognised() {
+        // Hand-typed BACKUP/RESTORE in the editor confirm with a specific reason
+        // (not the generic "unrecognised statement"), and are blocked read-only.
+        let backup = classify_rw("BACKUP DATABASE [Sales] TO DISK = N'/tmp/s.bak'");
+        assert_eq!(backup.level, GuardLevel::Confirm);
+        assert!(backup.reasons.iter().any(|r| r.contains("BACKUP")));
+        assert!(!backup.reasons.iter().any(|r| r.contains("unrecognised")));
+
+        let restore = classify_rw("RESTORE DATABASE [Sales] FROM DISK = N'/tmp/s.bak'");
+        assert_eq!(restore.level, GuardLevel::Confirm);
+        assert!(restore.reasons.iter().any(|r| r.contains("RESTORE")));
+
+        // Read-only mode blocks both (they are not reads).
+        let ro = classify("RESTORE DATABASE [Sales] FROM DISK = N'/tmp/s.bak'", true);
+        assert_eq!(ro.level, GuardLevel::Block);
+        assert!(ro.reasons.iter().any(|r| r.contains("read-only mode")));
     }
 
     #[test]

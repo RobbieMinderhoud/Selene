@@ -15,6 +15,9 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import type {
+  BackupEvent,
+  BackupFile,
+  BackupOptionsArg,
   CellValue,
   Column,
   ColumnInfo,
@@ -36,8 +39,11 @@ import type {
   MultiMode,
   MultiRunHandle,
   MultiTarget,
+  OperationSummary,
   QueryEvent,
   ResolvedTarget,
+  RestoreEvent,
+  RestoreOptionsArg,
   SchemaInfo,
   SessionInfo,
   TableInfo,
@@ -405,6 +411,63 @@ export function tableDrop(
   table: string,
 ): Promise<void> {
   return invoke("table_drop", { sessionId, database, schema, table });
+}
+
+// --- Database backup & restore (.bak) -------------------------------------
+
+/**
+ * `database_backup` -> back up `database` to the server-side file `path`.
+ * Progress arrives on `onProgress` (a `Channel<BackupEvent>`); the awaited
+ * result is an {@link OperationSummary}. Allowed on read-only connections.
+ */
+export function databaseBackup(
+  sessionId: string,
+  database: string,
+  path: string,
+  options: BackupOptionsArg,
+  onProgress: Channel<BackupEvent>,
+): Promise<OperationSummary> {
+  return invoke("database_backup", {
+    sessionId,
+    database,
+    path,
+    options,
+    onProgress,
+  });
+}
+
+/**
+ * `database_restore` -> restore the backup at `path` over the existing database
+ * `target` (`WITH REPLACE`, relocating files). Progress arrives on `onProgress`
+ * (a `Channel<RestoreEvent>`). Refused on a read-only connection.
+ */
+export function databaseRestore(
+  sessionId: string,
+  target: string,
+  path: string,
+  options: RestoreOptionsArg,
+  onProgress: Channel<RestoreEvent>,
+): Promise<OperationSummary> {
+  return invoke("database_restore", {
+    sessionId,
+    target,
+    path,
+    options,
+    onProgress,
+  });
+}
+
+/** `restore_filelist` -> the logical files inside the `.bak` at `path`. */
+export function restoreFilelist(
+  sessionId: string,
+  path: string,
+): Promise<BackupFile[]> {
+  return invoke("restore_filelist", { sessionId, path });
+}
+
+/** `backup_cancel` -> request cancellation of an in-flight backup or restore. */
+export function backupCancel(operationId: string): Promise<void> {
+  return invoke("backup_cancel", { operationId });
 }
 
 // --- Filesystem (file-backed tabs + workspace folders) --------------------
