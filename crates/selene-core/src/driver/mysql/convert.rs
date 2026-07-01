@@ -277,7 +277,11 @@ pub(crate) fn bind_value<'q>(
         CellValue::I64(n) => query.bind(*n),
         CellValue::F64(f) => query.bind(*f),
         CellValue::Bytes(b) => query.bind(b.clone()),
-        CellValue::String(s) => query.bind(s.clone()),
+        // Strings and nested document/array JSON text bind as text; MySQL coerces
+        // to a JSON/text destination column as needed.
+        CellValue::String(s) | CellValue::Document(s) | CellValue::Array(s) => {
+            query.bind(s.clone())
+        }
         // Exact numeric: parse into rust_decimal so MySQL gets a numeric value.
         // On a parse failure bind the text and let MySQL report the mismatch.
         CellValue::Decimal(s) => match rust_decimal::Decimal::from_str_exact(s) {

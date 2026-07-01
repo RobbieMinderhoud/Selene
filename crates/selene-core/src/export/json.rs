@@ -141,6 +141,13 @@ pub(super) fn cell_to_json(value: &CellValue) -> Value {
         CellValue::Bytes(bytes) => Value::String(bytes_to_hex(bytes)),
         CellValue::DateTime { iso, .. } => Value::String(iso.clone()),
         CellValue::Uuid(s) => Value::String(s.clone()),
+        // Nested document/array cells already hold JSON text: parse it back so it
+        // is inlined as real JSON structure rather than a quoted string. On a
+        // parse failure (pathological input only) fall back to the raw string so
+        // the document stays valid.
+        CellValue::Document(s) | CellValue::Array(s) => {
+            serde_json::from_str(s).unwrap_or_else(|_| Value::String(s.clone()))
+        }
         CellValue::Unsupported { text, .. } => Value::String(text.clone()),
     }
 }

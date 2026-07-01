@@ -43,6 +43,9 @@ pub mod postgres;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+#[cfg(feature = "mongodb")]
+pub mod mongodb;
+
 /// Whether a [`RowSink`] wants more data or has seen enough (cancel / row cap).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flow {
@@ -475,6 +478,8 @@ pub fn driver_for(id: DriverId) -> Result<Box<dyn DatabaseDriver>, CoreError> {
         DriverId::Mysql => Ok(Box::new(mysql::MysqlDriver::new())),
         #[cfg(feature = "sqlite")]
         DriverId::Sqlite => Ok(Box::new(sqlite::SqliteDriver::new())),
+        #[cfg(feature = "mongodb")]
+        DriverId::Mongodb => Ok(Box::new(mongodb::MongodbDriver::new())),
         // Catch-all for any `DriverId` whose backend feature is off in this build
         // (e.g. the default mssql-only bundle, or a sqlx-only test build). When
         // *every* driver feature happens to be enabled at once this arm becomes

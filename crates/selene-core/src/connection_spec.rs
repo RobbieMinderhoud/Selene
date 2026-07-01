@@ -16,6 +16,9 @@ pub enum DriverId {
     Postgres,
     Mysql,
     Sqlite,
+    /// MongoDB document store. Threaded through the SQL-shaped driver traits;
+    /// query/introspection support lands incrementally.
+    Mongodb,
 }
 
 impl DriverId {
@@ -26,6 +29,7 @@ impl DriverId {
             DriverId::Postgres => Some(5432),
             DriverId::Mysql => Some(3306),
             DriverId::Sqlite => None,
+            DriverId::Mongodb => Some(27017),
         }
     }
 }
@@ -39,6 +43,17 @@ pub enum AuthMethod {
     /// SQL Server login: username here, password supplied separately as a
     /// [`Secret`](crate::Secret).
     SqlLogin { username: String },
+    /// MongoDB SCRAM authentication: a username, plus an optional auth database
+    /// (`auth_source`, defaulting to `admin` when unset) and an optional
+    /// mechanism override (e.g. `SCRAM-SHA-256`). The password travels separately
+    /// as a [`Secret`](crate::Secret).
+    ScramLogin {
+        username: String,
+        #[serde(default)]
+        auth_source: Option<String>,
+        #[serde(default)]
+        mechanism: Option<String>,
+    },
     /// No authentication (e.g. a local SQLite file, whose "host" is the file
     /// path). The connection carries no username, port, or password.
     None,
@@ -86,6 +101,12 @@ pub struct ConnectionSpec {
     /// Named instance (MSSQL), if any.
     #[serde(default)]
     pub instance: Option<String>,
+    /// A full connection string, if the user pasted one (MongoDB `mongodb://` /
+    /// `mongodb+srv://`). When present, the MongoDB driver parses it and treats
+    /// the discrete host/port/auth fields as overlays. Old JSON without this key
+    /// still deserializes; the MSSQL/sqlx drivers ignore it.
+    #[serde(default)]
+    pub uri: Option<String>,
     /// Default database to connect to, if any.
     #[serde(default)]
     pub database: Option<String>,
@@ -109,7 +130,9 @@ impl ConnectionSpec {
     /// The login username, if the auth method has one.
     pub fn username(&self) -> Option<&str> {
         match &self.auth {
-            AuthMethod::SqlLogin { username } => Some(username),
+            AuthMethod::SqlLogin { username } | AuthMethod::ScramLogin { username, .. } => {
+                Some(username)
+            }
             AuthMethod::None => None,
         }
     }

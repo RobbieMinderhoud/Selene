@@ -86,6 +86,7 @@ async fn start_mssql() -> Fixture {
         host: "127.0.0.1".to_string(),
         port: Some(port),
         instance: None,
+        uri: None,
         database: None,
         auth: AuthMethod::SqlLogin {
             username: "sa".to_string(),
@@ -131,6 +132,7 @@ fn spec_for(port: u16) -> ConnectionSpec {
         host: "127.0.0.1".to_string(),
         port: Some(port),
         instance: None,
+        uri: None,
         database: None,
         auth: AuthMethod::SqlLogin {
             username: "sa".to_string(),
