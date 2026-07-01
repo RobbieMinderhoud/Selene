@@ -80,9 +80,7 @@ Commit subject: concise, describing the change, ending with `; release vX.Y.Z`.
 
 **Hook fact (`core.hooksPath` = `~/.githooks`):** a `commit-msg` hook strips
 `Co-Authored-By: …anthropic.com` trailers. Per the user's global rule, **never
-add any `Co-Authored-By` trailer** regardless. (The old `prepare-commit-msg` hook
-that appended ` - #<issue-number>` has been removed — subjects are no longer
-suffixed, so don't add or expect a `- #`.)
+add any `Co-Authored-By` trailer** regardless.
 
 ## 6. STOP — confirm with the user before merging + tagging
 
