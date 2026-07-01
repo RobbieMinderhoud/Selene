@@ -28,7 +28,9 @@ export type TemporalKind = "date" | "time" | "date_time" | "date_time_offset";
 /**
  * A single result-set cell, adjacently tagged on the wire as `{ t, v }`.
  * `Decimal` is a string to preserve exact numeric precision; `Bytes` is a byte
- * array; unmodelled server types arrive as `Unsupported` (lossless text).
+ * array; `Document`/`Array` carry a nested object/array as its JSON text
+ * (MongoDB, JSON columns); unmodelled server types arrive as `Unsupported`
+ * (lossless text).
  */
 export type CellValue =
   | { t: "Null" }
@@ -40,6 +42,8 @@ export type CellValue =
   | { t: "Bytes"; v: number[] }
   | { t: "DateTime"; v: { iso: string; kind: TemporalKind } }
   | { t: "Uuid"; v: string }
+  | { t: "Document"; v: string }
+  | { t: "Array"; v: string }
   | { t: "Unsupported"; v: { type_name: string; text: string } };
 
 /** Coarse, driver-neutral bucket for alignment/formatting (snake_case scalar). */

@@ -45,6 +45,7 @@ mod tests {
             host: host.into(),
             port: None,
             instance: None,
+            uri: None,
             database: None,
             auth: AuthMethod::None,
             tls: TlsConfig::default(),

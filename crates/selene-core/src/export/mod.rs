@@ -289,6 +289,8 @@ pub fn cell_to_text(value: &CellValue) -> String {
         CellValue::Bytes(bytes) => bytes_to_hex(bytes),
         CellValue::DateTime { iso, .. } => iso.clone(),
         CellValue::Uuid(s) => s.clone(),
+        // Nested document/array cells carry their JSON text; render it verbatim.
+        CellValue::Document(s) | CellValue::Array(s) => s.clone(),
         CellValue::Unsupported { text, .. } => text.clone(),
     }
 }

@@ -153,7 +153,13 @@ pub(crate) fn bind_value<'q>(
         CellValue::I64(n) => query.bind(*n),
         CellValue::F64(f) => query.bind(*f),
         CellValue::Bytes(b) => query.bind(b.clone()),
-        CellValue::Decimal(s) | CellValue::String(s) | CellValue::Uuid(s) => query.bind(s.clone()),
+        // Decimals, strings, UUIDs, and nested document/array JSON text all bind
+        // as TEXT (SQLite's dynamic typing + affinity coerce them on insert).
+        CellValue::Decimal(s)
+        | CellValue::String(s)
+        | CellValue::Uuid(s)
+        | CellValue::Document(s)
+        | CellValue::Array(s) => query.bind(s.clone()),
         CellValue::DateTime { iso, .. } => query.bind(iso.clone()),
         CellValue::Unsupported { text, .. } => query.bind(text.clone()),
     }

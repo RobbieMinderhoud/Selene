@@ -104,14 +104,15 @@ jobs:
         # integration.yml, so this stays fast and dependency-free.
         run: cargo test --workspace
 
-      # The sqlx drivers are behind off-by-default features, so the default
-      # workspace build above does not compile or test them. Lint + test them all
-      # together here to guard the drivers and the shared sqlx layer on every PR.
-      # Their Docker-backed integration tests are #[ignore]-d (run in
-      # integration.yml), so without `--ignored` only the unit tests and SQLite's
-      # in-process integration tests run — fast and dependency-free.
-      - name: Lint sqlx drivers (Clippy)
-        run: cargo clippy -p selene-core --features "sqlite postgres mysql" --all-targets -- -D warnings
+      # The additional drivers (sqlx sqlite/postgres/mysql + mongodb) are behind
+      # off-by-default features, so the default workspace build above does not
+      # compile or test them. Lint + test them all together here to guard the
+      # drivers and the shared layers on every PR. Their Docker-backed integration
+      # tests are #[ignore]-d (run in integration.yml), so without `--ignored` only
+      # the unit tests and SQLite's in-process integration tests run — fast and
+      # dependency-free.
+      - name: Lint additional drivers (Clippy)
+        run: cargo clippy -p selene-core --features "sqlite postgres mysql mongodb" --all-targets -- -D warnings
 
-      - name: Tests (sqlx drivers)
-        run: cargo test -p selene-core --features "sqlite postgres mysql"
+      - name: Tests (additional drivers)
+        run: cargo test -p selene-core --features "sqlite postgres mysql mongodb"

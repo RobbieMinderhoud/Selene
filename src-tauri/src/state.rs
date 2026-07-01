@@ -394,6 +394,7 @@ mod tests {
             host: "localhost".to_string(),
             port: None,
             instance: None,
+            uri: None,
             database: None,
             auth: AuthMethod::SqlLogin {
                 username: "sa".to_string(),

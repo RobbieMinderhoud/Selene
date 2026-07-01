@@ -62,6 +62,7 @@ fn spec_for(port: u16) -> ConnectionSpec {
         host: "127.0.0.1".to_string(),
         port: Some(port),
         instance: None,
+        uri: None,
         database: Some(PG_DATABASE.to_string()),
         auth: AuthMethod::SqlLogin {
             username: PG_USER.to_string(),

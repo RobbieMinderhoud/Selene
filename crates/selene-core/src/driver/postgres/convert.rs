@@ -229,7 +229,11 @@ pub(crate) fn bind_value<'q>(
         CellValue::I64(n) => query.bind(*n),
         CellValue::F64(f) => query.bind(*f),
         CellValue::Bytes(b) => query.bind(b.clone()),
-        CellValue::String(s) => query.bind(s.clone()),
+        // Strings and nested document/array JSON text bind as text; Postgres
+        // coerces to a json/jsonb/text destination column as needed.
+        CellValue::String(s) | CellValue::Document(s) | CellValue::Array(s) => {
+            query.bind(s.clone())
+        }
         // Exact numeric: parse into rust_decimal so Postgres accepts it for a
         // numeric/decimal column. On a parse failure (out of rust_decimal range,
         // or non-numeric text) bind the text and let Postgres report the mismatch.

@@ -28,6 +28,9 @@ mssql = [
 postgres = ["sqlx/postgres", "_sqlx-common"]
 mysql = ["sqlx/mysql", "_sqlx-common"]
 sqlite = ["sqlx/sqlite", "_sqlx-common"]
+# The MongoDB document store. Pulls in the official `mongodb` driver (rustls TLS,
+# Tokio runtime) and `bson` for value conversion, plus the shared async deps.
+mongodb = ["dep:mongodb", "dep:bson", "dep:tokio", "dep:futures-util"]
 # Internal: the deps every sqlx driver needs. We use the `tls-rustls` backend
 # (never native-tls — it breaks the TLS handshake on macOS, exactly as for the
 # mssql driver); SQLite itself needs no TLS but the shared flag stays rustls so
@@ -111,6 +114,23 @@ socket2 = { version = "0.5", optional = true }
 sqlx = { version = "0.8", default-features = false, optional = true }
 rust_decimal = { version = "1", optional = true }
 
+# --- MongoDB driver (feature = "mongodb") ---------------------------------
+# The official MongoDB driver. Defaults are off; we opt into the `rustls-tls`
+# backend (never native-tls — like tiberius/sqlx it breaks the TLS handshake on
+# macOS). The driver runs exclusively on Tokio, so `bson` and the shared Tokio
+# runtime are pulled in via the `mongodb` feature above.
+mongodb = { version = "3", default-features = false, features = [
+    "rustls-tls",
+    # The driver requires a BSON version to be selected (`default-features` drops
+    # it). `bson-2` matches our separate `bson = "2"` dep so the re-exported BSON
+    # types line up. `compat-3-3-0` is a mandatory forward-compat opt-in the crate
+    # enforces via a compile_error!. `dns-resolver` resolves `mongodb+srv://` URIs.
+    "bson-2",
+    "compat-3-3-0",
+    "dns-resolver",
+], optional = true }
+bson = { version = "2", optional = true }
+
 [dev-dependencies]
 # Hermetic temp files for the export golden tests. `tokio` (with the `macros`
 # and `rt` runtime from the workspace) is needed to drive the async `RowSink`
@@ -125,4 +145,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `mcr.microsoft.com/mssql/server` image with EULA/SA-password handling and a
 # readiness wait baked in. These are dev-only deps and never ship in the crate.
 testcontainers = "0.27"
-testcontainers-modules = { version = "0.15", features = ["mssql_server", "postgres", "mysql"] }
+testcontainers-modules = { version = "0.15", features = ["mssql_server", "postgres", "mysql", "mongo"] }

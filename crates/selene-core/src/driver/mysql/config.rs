@@ -61,6 +61,12 @@ pub(crate) fn build_options(
         SpecAuth::None => {
             return Err(CoreError::Config("MySQL requires a login".into()));
         }
+        // SCRAM (as modelled here) is a MongoDB auth method; reject it.
+        SpecAuth::ScramLogin { .. } => {
+            return Err(CoreError::Config(
+                "MySQL does not support SCRAM auth".into(),
+            ));
+        }
     }
 
     if let Some(database) = spec.database.as_deref() {
@@ -96,6 +102,7 @@ mod tests {
             host: "db.example.invalid".into(),
             port: None,
             instance: None,
+            uri: None,
             database: Some("appdb".into()),
             auth: AuthMethod::SqlLogin {
                 username: "selene".into(),

@@ -53,3 +53,6 @@ jobs:
 
       - name: Run MySQL integration tests
         run: cargo test -p selene-core --features mysql --test mysql_integration -- --ignored
+
+      - name: Run MongoDB integration tests
+        run: cargo test -p selene-core --features mongodb --test mongodb_integration -- --ignored

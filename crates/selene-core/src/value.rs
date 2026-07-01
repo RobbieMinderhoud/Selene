@@ -35,6 +35,10 @@ pub enum CellValue {
     DateTime { iso: String, kind: TemporalKind },
     /// `uniqueidentifier` / UUID, canonical string form.
     Uuid(String),
+    /// A nested document/object, carried as its JSON text (MongoDB, JSON columns).
+    Document(String),
+    /// A nested array, carried as its JSON text.
+    Array(String),
     /// A type Selene does not model yet, preserved losslessly as text.
     Unsupported { type_name: String, text: String },
 }

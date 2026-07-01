@@ -158,6 +158,9 @@ pub fn value_to_param(value: &CellValue) -> SqlParam {
             SqlParam::Text(s.clone())
         }
         CellValue::DateTime { iso, .. } => SqlParam::Text(iso.clone()),
+        // Nested document/array cells carry JSON text; bind it as text (the same
+        // treatment as a string — SQL Server has no native document type).
+        CellValue::Document(s) | CellValue::Array(s) => SqlParam::Text(s.clone()),
         CellValue::Unsupported { text, .. } => SqlParam::Text(text.clone()),
     }
 }

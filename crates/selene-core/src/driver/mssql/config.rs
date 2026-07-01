@@ -65,6 +65,12 @@ pub fn build_config(spec: &ConnectionSpec, secret: &Secret) -> Result<Config, Co
         // Server always needs a login, so reject it rather than silently
         // attempting an anonymous connect.
         SpecAuth::None => return Err(CoreError::Config("SQL Server requires a SQL login".into())),
+        // SCRAM is a MongoDB auth method; it has no meaning for SQL Server.
+        SpecAuth::ScramLogin { .. } => {
+            return Err(CoreError::Config(
+                "SQL Server does not support SCRAM auth".into(),
+            ))
+        }
     }
 
     // Transport security. `encrypt` toggles between full encryption and
@@ -99,6 +105,7 @@ mod tests {
             host: "db.example.invalid".into(),
             port: None,
             instance: None,
+            uri: None,
             database: Some("appdb".into()),
             auth: SpecAuth::SqlLogin {
                 username: "sa".into(),

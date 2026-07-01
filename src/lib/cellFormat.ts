@@ -52,6 +52,11 @@ export function formatCell(value: CellValue): FormattedCell {
       return { text: value.v.iso, isNull: false, align: "left" };
     case "Uuid":
       return { text: value.v, isNull: false, align: "left" };
+    // Nested document/array cells carry JSON text. For now just show the raw
+    // JSON string; a richer inline viewer is a later PR.
+    case "Document":
+    case "Array":
+      return { text: value.v, isNull: false, align: "left" };
     case "Unsupported":
       return { text: value.v.text, isNull: false, align: "left" };
     default: {
