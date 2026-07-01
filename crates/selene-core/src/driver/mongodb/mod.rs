@@ -4,24 +4,35 @@
 //! relational model cleanly. This driver threads it through the existing
 //! [`Connection`]/[`DatabaseDriver`] traits anyway; support arrives in stages:
 //!
-//! - **M1 (this module)**: connect / ping / `test_connection` / capabilities +
-//!   `list_databases`. Query execution and introspection-by-sampling are stubbed
-//!   ([`CoreError::Unsupported`] / empty lists) and land in later PRs.
+//! - **M1**: connect / ping / `test_connection` / capabilities +
+//!   `list_databases`.
+//! - **M2 (this PR)**: read query execution — a mongosh-shell-subset parser
+//!   ([`query`]), BSON→[`CellValue`] conversion ([`convert`]), and streaming of
+//!   `find`/`aggregate`/`countDocuments`/`distinct` into the result grid
+//!   ([`stream`]). Writes + the read-only guard + introspection-by-sampling land
+//!   in later PRs (`list_tables`/`list_columns` stay stubbed here).
 //!
 //! Layout:
-//! - [`config`] — `ConnectionSpec` + `Secret` → [`mongodb::options::ClientOptions`].
-//! - [`error`]  — `mongodb::error::Error` → [`CoreError`] (never leaking secrets).
+//! - [`config`]  — `ConnectionSpec` + `Secret` → [`mongodb::options::ClientOptions`].
+//! - [`error`]   — `mongodb::error::Error` → [`CoreError`] (never leaking secrets).
+//! - [`query`]   — mongosh-subset parser → [`query::MongoQuery`].
+//! - [`convert`] — BSON → [`CellValue`] / [`LogicalType`].
+//! - [`stream`]  — cursor/count/distinct → [`RowSink`] events.
 //!
 //! TLS uses the **rustls** backend (never native-tls — it breaks the handshake
 //! on macOS, exactly as for the mssql/sqlx drivers).
 
 mod config;
+mod convert;
 mod error;
+mod query;
+mod stream;
 
 use std::time::Instant;
 
-use mongodb::bson::doc;
-use mongodb::Client;
+use mongodb::bson::{doc, Document};
+use mongodb::options::FindOptions;
+use mongodb::{Client, Collection};
 
 use crate::capabilities::DriverCapabilities;
 use crate::connection_spec::{ConnectionSpec, DriverId};
@@ -34,6 +45,7 @@ use crate::secret::Secret;
 
 use self::config::build_options;
 use self::error::{map_connect_err, map_mongo_err};
+use self::query::{parse as parse_query, MongoQuery};
 
 /// Databases MongoDB treats as internal/system.
 const SYSTEM_DATABASES: &[&str] = &["admin", "local", "config"];
@@ -149,19 +161,170 @@ struct MongodbConnection {
     default_db: Option<String>,
 }
 
+impl MongodbConnection {
+    /// Resolve the current database and return a typed handle to `collection`
+    /// within it. The collection lives in the connection's current database
+    /// (tracked in `default_db`, set at connect time or via `use_database`);
+    /// MongoDB has no session-bound current database of its own.
+    fn collection(&self, collection: &str) -> Result<Collection<Document>, CoreError> {
+        let db = self
+            .default_db
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                CoreError::Query(
+                    "no database selected; set one on the connection or via USE".into(),
+                )
+            })?;
+        Ok(self.client.database(db).collection::<Document>(collection))
+    }
+}
+
+/// Convert a parsed [`Bson`] that must be a document into an owned [`Document`].
+/// The parser guarantees filter/projection/sort/count args are documents, but a
+/// pipeline stage comes straight from user JSON, so a non-document surfaces as a
+/// [`CoreError::Query`] rather than an `expect`/panic.
+fn into_document(value: mongodb::bson::Bson) -> Result<Document, CoreError> {
+    match value {
+        mongodb::bson::Bson::Document(d) => Ok(d),
+        _ => Err(CoreError::Query(
+            "expected a document object `{ … }`".into(),
+        )),
+    }
+}
+
+/// Like [`into_document`] but for an optional argument (projection/sort).
+fn optional_document(value: Option<mongodb::bson::Bson>) -> Result<Option<Document>, CoreError> {
+    match value {
+        None => Ok(None),
+        Some(v) => Ok(Some(into_document(v)?)),
+    }
+}
+
+/// The effective server-side `find` limit backstop, given the user's explicit
+/// `.limit(n)` and the `max_rows` row cap.
+///
+/// Two distinct notions of "limit" interact:
+/// - A user's `.limit(n)` is a **real cap** — the user asked for exactly `n`
+///   rows, so returning `n` is a complete result, *not* a truncation.
+/// - `max_rows` is a **safety cap** — the streaming layer must be able to tell
+///   whether the source had *more* than the cap so it can flag `truncated`. To
+///   do that it needs to *see* one row past the cap, so the server backstop for
+///   the row cap is `max_rows + 1` (fetch one extra; only `max_rows` are ever
+///   delivered — the stream drops the surplus and sets `truncated`).
+///
+/// Combined: take the tighter of the (magnitude of the) user limit and the
+/// `max_rows + 1` backstop. If the user limit is the tighter one it wins exactly
+/// (no truncation); if the row cap is tighter, the `+1` lets truncation be
+/// detected. A **negative** user limit is a mongosh single-batch hint; we use its
+/// magnitude. With neither set the find is unbounded server-side and the
+/// streaming layer's `max_rows` is the only cap.
+fn server_limit(user_limit: Option<i64>, max_rows: Option<u64>) -> Option<i64> {
+    let user = user_limit.map(|n| n.unsigned_abs());
+    // Fetch one past the row cap so the stream can observe "there was more".
+    let cap_backstop = max_rows.map(|c| c.saturating_add(1));
+    let effective = match (user, cap_backstop) {
+        (Some(u), Some(c)) => Some(u.min(c)),
+        (Some(u), None) => Some(u),
+        (None, Some(c)) => Some(c),
+        (None, None) => None,
+    };
+    // Clamp to i64 (FindOptions::limit is i64); a cap above i64::MAX is not
+    // physically reachable.
+    effective.map(|n| i64::try_from(n).unwrap_or(i64::MAX))
+}
+
 #[async_trait::async_trait]
 impl Connection for MongodbConnection {
     async fn execute(
         &mut self,
-        _sql: &str,
-        _opts: &ExecOptions,
-        _sink: &mut dyn RowSink,
-        _cancel: &CancelToken,
+        sql: &str,
+        opts: &ExecOptions,
+        sink: &mut dyn RowSink,
+        cancel: &CancelToken,
     ) -> Result<ExecOutcome, CoreError> {
-        // Query execution (find/aggregate → rows) lands in M2.
-        Err(CoreError::Unsupported(
-            "MongoDB query execution is not implemented yet".into(),
-        ))
+        // Honour a token that fired before we did any work.
+        if cancel.is_cancelled() {
+            return Err(CoreError::Cancelled);
+        }
+
+        // Parse the mongosh-subset query. A write method surfaces here as
+        // `Unsupported`; a malformed query as `Query`.
+        let query = parse_query(sql)?;
+
+        match query {
+            MongoQuery::Find {
+                collection,
+                filter,
+                projection,
+                sort,
+                skip,
+                limit,
+            } => {
+                let coll = self.collection(&collection)?;
+                let filter_doc = into_document(filter)?;
+
+                // Build FindOptions from the parsed chain. `max_rows` is also
+                // pushed to the server as a `.limit()` backstop so we never
+                // over-read: when the user set an explicit limit we take the
+                // tighter of the two; otherwise the row cap alone applies.
+                let mut find_opts = FindOptions::default();
+                find_opts.projection = optional_document(projection)?;
+                find_opts.sort = optional_document(sort)?;
+                find_opts.skip = skip;
+                // Batch the cursor at the caller's batch size (bounded to a u32).
+                find_opts.batch_size =
+                    Some(u32::try_from(opts.batch_size.max(1)).unwrap_or(u32::MAX));
+                find_opts.limit = server_limit(limit, opts.max_rows);
+
+                let cursor = coll
+                    .find(filter_doc)
+                    .with_options(find_opts)
+                    .await
+                    .map_err(map_mongo_err)?;
+                stream::stream_cursor(cursor, opts, sink, cancel).await
+            }
+
+            MongoQuery::Aggregate {
+                collection,
+                pipeline,
+            } => {
+                let coll = self.collection(&collection)?;
+                // Each stage must be a document; convert, surfacing a Query error
+                // for a non-document stage (e.g. `aggregate([1])`).
+                let stages: Vec<Document> = pipeline
+                    .into_iter()
+                    .map(into_document)
+                    .collect::<Result<_, _>>()?;
+                let cursor = coll.aggregate(stages).await.map_err(map_mongo_err)?;
+                stream::stream_cursor(cursor, opts, sink, cancel).await
+            }
+
+            MongoQuery::CountDocuments { collection, filter } => {
+                let coll = self.collection(&collection)?;
+                let filter_doc = into_document(filter)?;
+                let count = coll
+                    .count_documents(filter_doc)
+                    .await
+                    .map_err(map_mongo_err)?;
+                stream::emit_count(count, sink).await
+            }
+
+            MongoQuery::Distinct {
+                collection,
+                field,
+                filter,
+            } => {
+                let coll = self.collection(&collection)?;
+                let filter_doc = into_document(filter)?;
+                let values = coll
+                    .distinct(&field, filter_doc)
+                    .await
+                    .map_err(map_mongo_err)?;
+                stream::emit_distinct(&field, values, opts, sink, cancel).await
+            }
+        }
     }
 
     async fn list_databases(&mut self) -> Result<Vec<DatabaseInfo>, CoreError> {
@@ -230,4 +393,37 @@ impl Connection for MongodbConnection {
 
     // All remaining optional methods (create_table/import_rows/backup/restore +
     // database admin) use the trait defaults (Unsupported).
+}
+
+#[cfg(test)]
+mod tests {
+    use super::server_limit;
+
+    #[test]
+    fn server_limit_adds_one_to_the_row_cap_for_truncation_detection() {
+        // Only a row cap: fetch cap+1 so the stream can see there was more.
+        assert_eq!(server_limit(None, Some(4)), Some(5));
+        // No caps at all: unbounded server-side.
+        assert_eq!(server_limit(None, None), None);
+    }
+
+    #[test]
+    fn server_limit_user_limit_wins_when_tighter_and_is_exact() {
+        // A user .limit() below the row cap is a complete result (no +1).
+        assert_eq!(server_limit(Some(3), Some(50_000)), Some(3));
+        assert_eq!(server_limit(Some(10), None), Some(10));
+    }
+
+    #[test]
+    fn server_limit_row_cap_wins_when_user_limit_exceeds_it() {
+        // User asked for 100 but the safety cap is 4 → fetch cap+1 (5) to detect
+        // that the (100-wide) result was truncated to 4.
+        assert_eq!(server_limit(Some(100), Some(4)), Some(5));
+    }
+
+    #[test]
+    fn server_limit_normalises_negative_user_limit_to_its_magnitude() {
+        // A negative mongosh limit is a single-batch hint; use |n|.
+        assert_eq!(server_limit(Some(-3), Some(50_000)), Some(3));
+    }
 }
