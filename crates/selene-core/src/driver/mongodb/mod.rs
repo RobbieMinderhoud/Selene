@@ -10,11 +10,15 @@
 //!   BSON→[`CellValue`] conversion ([`convert`]), and streaming of
 //!   `find`/`aggregate`/`countDocuments`/`distinct` into the result grid
 //!   ([`stream`]).
-//! - **M3 (this PR)**: introspection by sampling ([`introspect`]) — collections
-//!   as tables (views detected via `listCollections`), fields inferred as columns
-//!   from a document sample. The read-only *guard* lives in
-//!   `crate::guard::mongo_guard` (enforced server-side in `src-tauri`), not in the
-//!   driver. Writes remain out of scope here.
+//! - **M3**: introspection by sampling ([`introspect`]) — collections as tables
+//!   (views detected via `listCollections`), fields inferred as columns from a
+//!   document sample. The read-only *guard* lives in `crate::guard::mongo_guard`
+//!   (enforced server-side in `src-tauri`), not in the driver.
+//! - **Writes**: the core write methods ([`writes`]) — `insertOne`/`insertMany`,
+//!   `updateOne`/`updateMany`, `deleteOne`/`deleteMany`, `replaceOne`, and
+//!   collection `drop` — execute, reporting an affected-document count. The guard
+//!   still Confirms these when writable and Blocks them read-only. Higher-level
+//!   writes (`findOneAnd…`, `bulkWrite`, index/database DDL) stay `Unsupported`.
 //!
 //! Layout:
 //! - [`config`]     — `ConnectionSpec` + `Secret` → [`mongodb::options::ClientOptions`].
@@ -22,6 +26,7 @@
 //! - [`query`]      — mongosh-subset parser → [`query::MongoQuery`].
 //! - [`convert`]    — BSON → [`CellValue`] / [`LogicalType`].
 //! - [`stream`]     — cursor/count/distinct → [`RowSink`] events.
+//! - [`writes`]     — insert/update/delete/replace/drop → affected-count set.
 //! - [`introspect`] — `listCollections` + sampled-field columns.
 //!
 //! TLS uses the **rustls** backend (never native-tls — it breaks the handshake
@@ -33,6 +38,7 @@ mod error;
 mod introspect;
 mod query;
 mod stream;
+mod writes;
 
 use std::time::Instant;
 
@@ -255,8 +261,9 @@ impl Connection for MongodbConnection {
             return Err(CoreError::Cancelled);
         }
 
-        // Parse the mongosh-subset query. A write method surfaces here as
-        // `Unsupported`; a malformed query as `Query`.
+        // Parse the mongosh-subset query. A malformed query surfaces here as
+        // `Query`; a not-yet-supported method (findOneAnd…, bulkWrite, DDL) as
+        // `Unsupported`.
         let query = parse_query(sql)?;
 
         match query {
@@ -329,6 +336,99 @@ impl Connection for MongodbConnection {
                     .await
                     .map_err(map_mongo_err)?;
                 stream::emit_distinct(&field, values, opts, sink, cancel).await
+            }
+
+            // --- Writes. The guard (server-side) refuses these on a read-only
+            // connection and Confirms them on a writable one before `execute`
+            // runs, so we only ever reach here for an approved write. Each emits
+            // a column-less affected-count set (see `writes`).
+            MongoQuery::InsertOne {
+                collection,
+                document,
+            } => {
+                let coll = self.collection(&collection)?;
+                writes::insert_one(coll, into_document(document)?, sink, cancel).await
+            }
+
+            MongoQuery::InsertMany {
+                collection,
+                documents,
+            } => {
+                let coll = self.collection(&collection)?;
+                let docs: Vec<Document> = documents
+                    .into_iter()
+                    .map(into_document)
+                    .collect::<Result<_, _>>()?;
+                writes::insert_many(coll, docs, sink, cancel).await
+            }
+
+            MongoQuery::UpdateOne {
+                collection,
+                filter,
+                update,
+                upsert,
+            } => {
+                let coll = self.collection(&collection)?;
+                writes::update_one(
+                    coll,
+                    into_document(filter)?,
+                    into_document(update)?,
+                    upsert,
+                    sink,
+                    cancel,
+                )
+                .await
+            }
+
+            MongoQuery::UpdateMany {
+                collection,
+                filter,
+                update,
+                upsert,
+            } => {
+                let coll = self.collection(&collection)?;
+                writes::update_many(
+                    coll,
+                    into_document(filter)?,
+                    into_document(update)?,
+                    upsert,
+                    sink,
+                    cancel,
+                )
+                .await
+            }
+
+            MongoQuery::ReplaceOne {
+                collection,
+                filter,
+                replacement,
+                upsert,
+            } => {
+                let coll = self.collection(&collection)?;
+                writes::replace_one(
+                    coll,
+                    into_document(filter)?,
+                    into_document(replacement)?,
+                    upsert,
+                    sink,
+                    cancel,
+                )
+                .await
+            }
+
+            MongoQuery::DeleteOne { collection, filter } => {
+                let coll = self.collection(&collection)?;
+                writes::delete_one(coll, into_document(filter)?, sink, cancel).await
+            }
+
+            MongoQuery::DeleteMany { collection, filter } => {
+                let coll = self.collection(&collection)?;
+                writes::delete_many(coll, into_document(filter)?, sink, cancel).await
+            }
+
+            MongoQuery::DropCollection { collection } => {
+                let coll = self.collection(&collection)?;
+                writes::drop_collection(coll, sink, cancel).await
             }
         }
     }

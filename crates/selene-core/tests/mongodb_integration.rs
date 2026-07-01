@@ -8,7 +8,10 @@
 //! - **M2**: read query execution — `find` (incl. column union + nested
 //!   document/array cells + a missing-field `Null`), a filtered `find` with a
 //!   `.sort().limit()` chain, `aggregate`, `countDocuments`, `distinct`,
-//!   `max_rows` truncation, a pre-cancelled token, and that a write method is
+//!   `max_rows` truncation, and a pre-cancelled token.
+//! - **Writes**: `insertOne`/`insertMany`, `updateMany` (+ an `upsert` insert),
+//!   `deleteOne`/`deleteMany`, `replaceOne`, and `drop` execute and report an
+//!   affected-document count; a still-unsupported write (`findOneAndUpdate`) is
 //!   refused as `Unsupported`.
 //! - **M3**: introspection by sampling — `list_tables` (collections as `Table`,
 //!   a `viewOn` view as `View`, sorted), and `list_columns` (`_id` first + flagged
@@ -587,25 +590,256 @@ async fn precancelled_token_yields_cancelled() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. A write method is refused as Unsupported.
+// 11. Writes execute and report an affected-document count; a still-unsupported
+//     write is refused as Unsupported.
 // ---------------------------------------------------------------------------
+
+/// Count documents in `TEST_DB.<collection>` via the raw client (used to verify
+/// a write's effect independently of the driver's read path).
+async fn raw_count(port: u16, collection: &str) -> u64 {
+    let client = raw_client(port).await;
+    client
+        .database(TEST_DB)
+        .collection::<Document>(collection)
+        .count_documents(doc! {})
+        .await
+        .expect("raw count")
+}
+
+/// Whether `TEST_DB` currently contains a collection named `collection`.
+async fn raw_collection_exists(port: u16, collection: &str) -> bool {
+    let client = raw_client(port).await;
+    let names = client
+        .database(TEST_DB)
+        .list_collection_names()
+        .await
+        .expect("list collection names");
+    names.iter().any(|n| n == collection)
+}
+
+/// The single affected count of a write's column-less result set.
+fn affected(sink: &CollectingSink) -> Option<u64> {
+    let set = sink.set0();
+    // A write emits meta with no columns, then one set-end carrying the count.
+    assert!(
+        set.columns.is_empty(),
+        "a write result set must be column-less, got {:?}",
+        set.columns
+    );
+    assert_eq!(set.set_end_count, 1, "the set must be closed exactly once");
+    set.affected.into_iter().next().flatten()
+}
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn write_method_is_unsupported() {
+async fn insert_one_executes() {
+    // Verified via the driver's own read path, so no raw client / port needed.
+    let (mut fixture, _port) = start_mongodb().await;
+
+    let (outcome, sink) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.insertOne({ "name": "gamma", "qty": 5 })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+
+    assert_eq!(outcome.result_sets, 1);
+    assert_eq!(affected(&sink), Some(1));
+    // The document is now findable via the driver's own read path.
+    let (count_outcome, count_sink) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.countDocuments({ "name": "gamma" })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+    assert_eq!(count_outcome.total_rows, 1);
+    assert_eq!(count_sink.set0().rows[0][0], CellValue::I64(1));
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn insert_many_reports_count() {
+    let (mut fixture, port) = start_mongodb().await;
+
+    let (_outcome, sink) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.insertMany([{ "n": 1 }, { "n": 2 }, { "n": 3 }])"#,
+        &ExecOptions::default(),
+    )
+    .await;
+
+    assert_eq!(affected(&sink), Some(3));
+    assert_eq!(raw_count(port, TEST_COLL).await, 3);
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn update_many_modifies_matching_documents() {
+    let (mut fixture, port) = start_mongodb().await;
+    seed(port, fixture_docs()).await; // "alpha" (active:true), "beta" (active:false)
+
+    // Set a new field on every document; both match, both are modified.
+    let (_outcome, sink) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.updateMany({}, { "$set": { "reviewed": true } })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+
+    assert_eq!(affected(&sink), Some(2), "both documents modified");
+    // Verify the change landed on both.
+    let (count_outcome, _) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.countDocuments({ "reviewed": true })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+    assert_eq!(count_outcome.total_rows, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn delete_one_and_delete_many_remove_documents() {
+    let (mut fixture, port) = start_mongodb().await;
+    // Four docs: two "eu", two "us".
+    seed(
+        port,
+        vec![
+            doc! { "region": "eu", "n": 1i32 },
+            doc! { "region": "eu", "n": 2i32 },
+            doc! { "region": "us", "n": 3i32 },
+            doc! { "region": "us", "n": 4i32 },
+        ],
+    )
+    .await;
+
+    // deleteOne removes exactly one matching "eu" document.
+    let (_o1, s1) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.deleteOne({ "region": "eu" })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+    assert_eq!(affected(&s1), Some(1));
+    assert_eq!(raw_count(port, TEST_COLL).await, 3);
+
+    // deleteMany removes both "us" documents.
+    let (_o2, s2) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.deleteMany({ "region": "us" })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+    assert_eq!(affected(&s2), Some(2));
+    assert_eq!(raw_count(port, TEST_COLL).await, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn replace_one_swaps_the_document() {
+    let (mut fixture, port) = start_mongodb().await;
+    seed(port, vec![doc! { "name": "old", "keep": false }]).await;
+
+    let (_outcome, sink) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.replaceOne({ "name": "old" }, { "name": "new" })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+
+    assert_eq!(affected(&sink), Some(1), "one document replaced");
+    // The old shape is gone; the replacement is present without the old field.
+    let (gone, _) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.countDocuments({ "name": "old" })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+    assert_eq!(gone.total_rows, 1);
+    assert_eq!(
+        run(
+            fixture.conn.as_mut(),
+            r#"db.docs.countDocuments({ "name": "new" })"#,
+            &ExecOptions::default(),
+        )
+        .await
+        .0
+        .total_rows,
+        1
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn upsert_inserts_when_no_match() {
+    let (mut fixture, port) = start_mongodb().await;
+    seed(port, vec![doc! { "name": "existing" }]).await;
+
+    // A filter that matches nothing, with upsert:true, inserts a new document —
+    // counted as one affected even though modified_count is 0.
+    let (_outcome, sink) = run(
+        fixture.conn.as_mut(),
+        r#"db.docs.updateOne({ "name": "missing" }, { "$set": { "created": true } }, { "upsert": true })"#,
+        &ExecOptions::default(),
+    )
+    .await;
+
+    assert_eq!(affected(&sink), Some(1), "an upsert insert counts as one");
+    assert_eq!(raw_count(port, TEST_COLL).await, 2);
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn drop_removes_the_collection() {
+    let (mut fixture, port) = start_mongodb().await;
+    seed_named(port, "scratch", vec![doc! { "n": 1i32 }]).await;
+    assert!(raw_collection_exists(port, "scratch").await);
+
+    // Point the connection's current collection queries at "scratch" via a
+    // fully-qualified drop.
+    let (outcome, sink) = run(
+        fixture.conn.as_mut(),
+        "db.scratch.drop()",
+        &ExecOptions::default(),
+    )
+    .await;
+
+    assert_eq!(outcome.result_sets, 1);
+    // A drop returns no count; we surface a clean 0.
+    assert_eq!(affected(&sink), Some(0));
+    assert!(
+        !raw_collection_exists(port, "scratch").await,
+        "the collection must be gone after drop()"
+    );
+    // It also disappears from the driver's own list_tables.
+    let tables = fixture
+        .conn
+        .list_tables(TEST_DB, "")
+        .await
+        .expect("list_tables");
+    assert!(
+        !tables.iter().any(|t| t.name == "scratch"),
+        "dropped collection must not appear in list_tables"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn still_unsupported_write_is_refused() {
     let (mut fixture, _port) = start_mongodb().await;
     let mut sink = CollectingSink::new();
     let cancel = CancelToken::new();
+    // findOneAndUpdate returns a document (a later change); it stays Unsupported.
     let err = fixture
         .conn
         .execute(
-            r#"db.docs.insertOne({ "a": 1 })"#,
+            r#"db.docs.findOneAndUpdate({}, { "$set": { "a": 1 } })"#,
             &ExecOptions::default(),
             &mut sink,
             &cancel,
         )
         .await
-        .expect_err("writes are not supported in M2");
+        .expect_err("findOneAndUpdate is not yet supported");
     assert!(matches!(err, CoreError::Unsupported(_)), "got {err:?}");
 }
 
