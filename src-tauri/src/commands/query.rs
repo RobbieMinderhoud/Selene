@@ -23,7 +23,8 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 
 use selene_core::{
-    classify, CancelToken, CellValue, Column, ExecOptions, Flow, GuardLevel, GuardVerdict, RowSink,
+    classify, classify_for, CancelToken, CellValue, Column, ExecOptions, Flow, GuardLevel,
+    GuardVerdict, RowSink,
 };
 
 use crate::commands::QueryEvent;
@@ -97,6 +98,13 @@ impl RowSink for ChannelSink {
 /// [`selene_core::classify`]; `read_only` reflects the connection's safety
 /// toggle. Pure and synchronous, but exposed as a command so the editor can
 /// show a warning before the user runs anything.
+///
+/// This advisory pre-check stays SQL-only for now: making it driver-aware (so a
+/// MongoDB tab pre-flights through [`classify_mongo`](selene_core::classify_mongo))
+/// requires the frontend to pass the session, which lands in M4 when MongoDB is
+/// wired into the UI. The **authoritative** guard is enforced server-side in
+/// [`query_run`], which *is* driver-aware — so a write on a read-only MongoDB
+/// connection is refused there regardless of this pre-check.
 #[tauri::command]
 pub async fn guard_check(sql: String, read_only: bool) -> Result<GuardVerdict, IpcError> {
     Ok(classify(&sql, read_only))
@@ -124,17 +132,19 @@ pub async fn query_run<R: Runtime>(
     max_rows: Option<u64>,
     on_event: Channel<QueryEvent>,
 ) -> Result<QueryHandle, IpcError> {
-    // (1) Resolve the session's read-only flag (cheaply, without holding the
-    //     lock for the whole query) and enforce the guard up front.
-    let read_only = {
+    // (1) Resolve the session's driver + read-only flag (cheaply, without holding
+    //     the lock for the whole query) and enforce the guard up front. The
+    //     driver selects the classifier: MongoDB queries are mongosh method calls,
+    //     not SQL, so `classify_for` routes them through the Mongo guard.
+    let (driver, read_only) = {
         let sessions = state.sessions.lock().await;
         let session = sessions
             .get(&session_id)
             .ok_or_else(|| IpcError::unknown_session(&session_id))?;
-        session.read_only
+        (session.driver, session.read_only)
     };
 
-    let verdict = classify(&sql, read_only);
+    let verdict = classify_for(driver, &sql, read_only);
     if verdict.level == GuardLevel::Block {
         tracing::warn!(%session_id, "query blocked by SQL guard");
         return Err(IpcError::blocked(&verdict.reasons));

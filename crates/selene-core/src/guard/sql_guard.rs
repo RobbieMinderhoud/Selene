@@ -44,8 +44,11 @@ pub struct GuardVerdict {
 }
 
 impl GuardVerdict {
-    /// A benign, reason-free verdict.
-    fn info() -> Self {
+    /// A benign, reason-free verdict ([`GuardLevel::Info`] with no reasons).
+    ///
+    /// Shared by both classifiers (this SQL guard and
+    /// [`mongo_guard`](super::mongo_guard)) for empty / read-only-safe input.
+    pub fn benign() -> Self {
         Self {
             level: GuardLevel::Info,
             reasons: Vec::new(),
@@ -94,7 +97,7 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
         .collect();
 
     if statements.is_empty() {
-        return GuardVerdict::info();
+        return GuardVerdict::benign();
     }
 
     // A common SQL-editor safety pattern is:
@@ -112,7 +115,7 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
         && (is_rollback_wrapped_read_or_dml_batch(&statements)
             || (statements.len() == 1 && is_rollback_wrapped_no_semi(statements[0], false)))
     {
-        return GuardVerdict::info();
+        return GuardVerdict::benign();
     }
 
     let mut level = GuardLevel::Info;

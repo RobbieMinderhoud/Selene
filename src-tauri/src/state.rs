@@ -218,14 +218,15 @@ impl ConnectionStore {
 /// command needs without re-reading the store.
 ///
 /// `driver`, `caps`, and `connection_id` are snapshotted at connect time and
-/// returned to the frontend via [`SessionInfo`](crate::commands::session::SessionInfo);
-/// they are retained on the session for diagnostics and for forthcoming
-/// session-scoped commands (e.g. a reconnect that re-reads the originating
-/// spec, or capability-gated behaviour) — hence `#[allow(dead_code)]` rather
-/// than dropping them from the documented session model.
+/// returned to the frontend via [`SessionInfo`](crate::commands::session::SessionInfo).
+/// `driver` is read by `query_run` to pick the safety guard; `caps` and
+/// `connection_id` are retained for diagnostics and for forthcoming
+/// session-scoped commands (e.g. a reconnect that re-reads the originating spec,
+/// or capability-gated behaviour) — hence `#[allow(dead_code)]` on those two
+/// rather than dropping them from the documented session model.
 pub struct SessionEntry {
-    /// Which backend this session is connected to.
-    #[allow(dead_code)]
+    /// Which backend this session is connected to. Read by `query_run` to select
+    /// the safety guard (SQL vs. MongoDB) for server-side enforcement.
     pub driver: DriverId,
     /// The driver's capabilities, snapshotted at connect time.
     #[allow(dead_code)]
