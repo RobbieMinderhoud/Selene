@@ -16,7 +16,7 @@ import {
   sessionCurrentDatabase,
 } from "../ipc/commands";
 import { asIpcError } from "../ipc/types";
-import type { GuardVerdict, QueryEvent } from "../ipc/types";
+import type { DriverId, GuardVerdict, QueryEvent } from "../ipc/types";
 import { getTab, useEditorStore } from "../state/editorStore";
 import { useSettingsStore } from "../state/settingsStore";
 import { toastError, toastInfo } from "../state/toastStore";
@@ -51,6 +51,12 @@ export interface RunOptions {
   sql: string;
   readOnly: boolean;
   maxRows?: number;
+  /**
+   * The tab's driver, threaded into the pre-run guard so a MongoDB tab is
+   * classified with the Mongo guard (mongosh calls) rather than the SQL one.
+   * `undefined` falls back to the SQL classifier.
+   */
+  driver?: DriverId;
   /** Shows the confirm modal; resolves to whether the user accepted. */
   onConfirm: ConfirmFn;
   /** Shows the block message. */
@@ -63,7 +69,7 @@ export interface RunOptions {
  * (without running) if the guard blocks or the user declines a confirm.
  */
 export async function runQuery(opts: RunOptions): Promise<void> {
-  const { tabId, sessionId, sql, readOnly } = opts;
+  const { tabId, sessionId, sql, readOnly, driver } = opts;
   const store = useEditorStore.getState();
 
   if (!sql.trim()) return;
@@ -75,7 +81,7 @@ export async function runQuery(opts: RunOptions): Promise<void> {
   // (1) Guard check.
   let verdict: GuardVerdict;
   try {
-    verdict = await guardCheck(sql, readOnly);
+    verdict = await guardCheck(sql, readOnly, driver);
   } catch (err) {
     const e = asIpcError(err);
     toastError("Guard check failed", e.message);

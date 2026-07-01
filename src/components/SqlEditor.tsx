@@ -13,6 +13,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { sql } from "@codemirror/lang-sql";
+import { javascript } from "@codemirror/lang-javascript";
 import type { CompletionSource } from "@codemirror/autocomplete";
 import { EditorView, keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
@@ -110,6 +111,11 @@ export function SqlEditor({
 
   // Extensions rebuilt when run binding, editor settings, or the driver change.
   const extensions = useMemo(() => {
+    // MongoDB "queries" are mongosh method calls (`db.coll.find(...)`), not SQL,
+    // so the tab uses the JavaScript language for highlighting and skips the
+    // SQL dialect + SQL-shaped schema autocomplete. Every other driver keeps the
+    // SQL path unchanged.
+    const isMongo = driver === "mongodb";
     const dialect = dialectFor(driver);
     const editorKeymap = Prec.highest(
       keymap.of([
@@ -147,7 +153,9 @@ export function SqlEditor({
       ]),
     );
     const exts = [
-      sql({ dialect, upperCaseKeywords: editor.upperCaseKeywords }),
+      isMongo
+        ? javascript()
+        : sql({ dialect, upperCaseKeywords: editor.upperCaseKeywords }),
       editorKeymap,
       // Provides the search state the overlay drives via `setSearchQuery`; its
       // own panel is never opened, so only the query/highlight machinery is used.
@@ -175,7 +183,8 @@ export function SqlEditor({
     // Register schema/column completion as an extra source on the SQL language's
     // autocomplete facet (the same channel lang-sql uses for its keyword + schema
     // sources), so the single basicSetup `autocompletion()` plugin reads both.
-    if (schemaSource) {
+    // The source is SQL-shaped, so it is skipped on the MongoDB (JS) editor.
+    if (schemaSource && !isMongo) {
       exts.push(dialect.language.data.of({ autocomplete: schemaSource }));
     }
     if (editor.wordWrap) exts.push(EditorView.lineWrapping);

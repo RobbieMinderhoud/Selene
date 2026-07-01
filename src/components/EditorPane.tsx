@@ -168,6 +168,8 @@ export function EditorPane({ tabId }: EditorPaneProps) {
           sessionId,
           sql: sqlText,
           readOnly: live?.readOnly ?? session?.readOnly ?? false,
+          // Thread the driver so a MongoDB tab pre-flights through the Mongo guard.
+          driver: session?.info.driver,
           onBlock: (verdict) => setGuard({ kind: "block", verdict }),
           onConfirm: (verdict) =>
             new Promise<boolean>((resolve) => {
@@ -179,7 +181,13 @@ export function EditorPane({ tabId }: EditorPaneProps) {
         runInFlight.current = false;
       }
     },
-    [tab?.sessionId, tab?.connectionId, tabId, session?.readOnly],
+    [
+      tab?.sessionId,
+      tab?.connectionId,
+      tabId,
+      session?.readOnly,
+      session?.info.driver,
+    ],
   );
 
   const runWhole = useCallback(() => {

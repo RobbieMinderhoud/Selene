@@ -12,6 +12,12 @@ yet set up.)
 
 ### Added
 
+- **Connect to MongoDB.** Pick MongoDB in the connection dialog (host/port or a
+  `mongodb://` / `mongodb+srv://` URI), browse databases and collections with
+  sampled field shapes, and run mongosh-style read queries
+  (`db.coll.find(...)`, `.aggregate([...])`, `countDocuments`, `distinct`) with
+  results — including nested documents/arrays — shown in the grid. Read-only
+  connections block writes.
 - **Connect to PostgreSQL, MySQL, and SQLite, not just SQL Server.** The
   connection dialog now starts with a **Driver** picker; choose the backend and
   the form adapts — PostgreSQL and MySQL show host/port (defaulting to 5432 /

@@ -9,6 +9,7 @@ describe("driverLabel", () => {
     expect(driverLabel("postgres")).toBe("PostgreSQL");
     expect(driverLabel("mysql")).toBe("MySQL");
     expect(driverLabel("sqlite")).toBe("SQLite");
+    expect(driverLabel("mongodb")).toBe("MongoDB");
   });
 });
 
@@ -17,6 +18,7 @@ describe("driverDefaultPort", () => {
     expect(driverDefaultPort("mssql")).toBe(1433);
     expect(driverDefaultPort("postgres")).toBe(5432);
     expect(driverDefaultPort("mysql")).toBe(3306);
+    expect(driverDefaultPort("mongodb")).toBe(27017);
   });
 
   it("returns null for fileless SQLite", () => {
@@ -26,7 +28,13 @@ describe("driverDefaultPort", () => {
 
 describe("DRIVERS", () => {
   it("lists every driver exactly once", () => {
-    const expected: DriverId[] = ["mssql", "postgres", "mysql", "sqlite"];
+    const expected: DriverId[] = [
+      "mssql",
+      "postgres",
+      "mysql",
+      "sqlite",
+      "mongodb",
+    ];
     expect([...DRIVERS].sort()).toEqual([...expected].sort());
   });
 });

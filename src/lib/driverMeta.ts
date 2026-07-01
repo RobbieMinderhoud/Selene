@@ -17,6 +17,8 @@ export function driverLabel(d: DriverId): string {
       return "MySQL";
     case "sqlite":
       return "SQLite";
+    case "mongodb":
+      return "MongoDB";
   }
 }
 
@@ -31,8 +33,16 @@ export function driverDefaultPort(d: DriverId): number | null {
       return 3306;
     case "sqlite":
       return null;
+    case "mongodb":
+      return 27017;
   }
 }
 
 /** All drivers, in the order they appear in the connection dialog's select. */
-export const DRIVERS: DriverId[] = ["mssql", "postgres", "mysql", "sqlite"];
+export const DRIVERS: DriverId[] = [
+  "mssql",
+  "postgres",
+  "mysql",
+  "sqlite",
+  "mongodb",
+];
