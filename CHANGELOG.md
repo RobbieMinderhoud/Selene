@@ -8,6 +8,15 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [Unreleased]
+
+### Added
+
+- **Run MongoDB writes.** insert/update/delete/replace and drop-collection now
+  execute from the editor (`db.coll.insertOne(...)`, `.updateMany(...)`,
+  `.deleteMany({})`, …), reporting the affected-document count; read-only
+  connections still block them.
+
 ## [1.4.0] - 2026-07-01
 
 ### Added

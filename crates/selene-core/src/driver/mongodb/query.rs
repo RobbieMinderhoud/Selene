@@ -35,8 +35,11 @@ use bson::Bson;
 
 use crate::error::CoreError;
 
-/// A parsed mongosh read query. Only read methods are represented; any write
-/// method is rejected by [`parse`] as [`CoreError::Unsupported`].
+/// A parsed mongosh query — the read methods plus the core write methods.
+///
+/// Writes emit a column-less affected-count result set (see `super::writes`),
+/// mirroring how SQL DML is surfaced. Some higher-level writes remain
+/// [`CoreError::Unsupported`] (see [`parse`]).
 ///
 /// The `Find` variant is larger than the others because it carries several
 /// `Bson` documents, but this value is short-lived — it is produced once per
@@ -67,6 +70,43 @@ pub(crate) enum MongoQuery {
         field: String,
         filter: Bson,
     },
+    InsertOne {
+        collection: String,
+        document: Bson,
+    },
+    InsertMany {
+        collection: String,
+        documents: Vec<Bson>,
+    },
+    UpdateOne {
+        collection: String,
+        filter: Bson,
+        update: Bson,
+        upsert: bool,
+    },
+    UpdateMany {
+        collection: String,
+        filter: Bson,
+        update: Bson,
+        upsert: bool,
+    },
+    DeleteOne {
+        collection: String,
+        filter: Bson,
+    },
+    DeleteMany {
+        collection: String,
+        filter: Bson,
+    },
+    ReplaceOne {
+        collection: String,
+        filter: Bson,
+        replacement: Bson,
+        upsert: bool,
+    },
+    DropCollection {
+        collection: String,
+    },
 }
 
 /// One `.<name>(<raw-args>)` call extracted from the source, with the raw
@@ -82,8 +122,9 @@ struct Call<'a> {
 ///
 /// Returns [`CoreError::Query`] for anything not matching the
 /// `db.<collection>.<method>(...)` shape or with a malformed argument, and
-/// [`CoreError::Unsupported`] for a recognised *write* method (writes + the
-/// read-only guard land in a later change).
+/// [`CoreError::Unsupported`] for a recognised method Selene does not yet run
+/// (the higher-level writes: `findOneAnd…`, `bulkWrite`, `createIndex…`,
+/// `renameCollection`, `dropDatabase`).
 pub(crate) fn parse(input: &str) -> Result<MongoQuery, CoreError> {
     let src = input.trim();
     if src.is_empty() {
@@ -116,16 +157,24 @@ pub(crate) fn parse(input: &str) -> Result<MongoQuery, CoreError> {
         "aggregate" => parse_aggregate(collection, method, chain),
         "countDocuments" | "count" => parse_count(collection, method, chain),
         "distinct" => parse_distinct(collection, method, chain),
-        // Recognised writes/DDL: refuse explicitly (guard + writes are a later
-        // change). Naming them keeps the error actionable.
-        "insertOne" | "insertMany" | "updateOne" | "updateMany" | "deleteOne" | "deleteMany"
-        | "replaceOne" | "findOneAndUpdate" | "findOneAndReplace" | "findOneAndDelete"
-        | "bulkWrite" | "drop" | "createIndex" | "renameCollection" => {
-            Err(CoreError::Unsupported(format!(
-                "`{}` writes; writes/guard land in a later change",
-                method.name
-            )))
-        }
+        // Core writes: parsed here, executed in `super::writes`. The guard
+        // (enforced server-side) still Confirms these on a writable connection
+        // and Blocks them on a read-only one, so `execute` only runs an approved
+        // write.
+        "insertOne" => parse_insert_one(collection, method, chain),
+        "insertMany" => parse_insert_many(collection, method, chain),
+        "updateOne" | "updateMany" => parse_update(collection, method, chain),
+        "replaceOne" => parse_replace_one(collection, method, chain),
+        "deleteOne" | "deleteMany" => parse_delete(collection, method, chain),
+        "drop" => parse_drop(collection, method, chain),
+        // Higher-level writes/DDL Selene does not yet run. `findOneAnd…` returns
+        // a document (a distinct result shape) and the rest are lower-value;
+        // they stay Unsupported for now. The guard still classifies them as
+        // writes, so the read-only safety story is unchanged.
+        "findOneAndUpdate" | "findOneAndReplace" | "findOneAndDelete" | "bulkWrite"
+        | "createIndex" | "createIndexes" | "renameCollection" | "dropDatabase" => Err(
+            CoreError::Unsupported(format!("`{}` is not yet supported", method.name)),
+        ),
         other => Err(CoreError::Query(format!("unknown method `{other}`"))),
     }
 }
@@ -265,6 +314,161 @@ fn parse_distinct(
 }
 
 // ---------------------------------------------------------------------------
+// Write method handlers
+// ---------------------------------------------------------------------------
+
+/// `insertOne(document)` — exactly one document argument.
+fn parse_insert_one(
+    collection: &str,
+    method: &Call,
+    chain: &[Call],
+) -> Result<MongoQuery, CoreError> {
+    reject_terminal_only_chain(chain, "insertOne")?;
+    let args = split_top_level_args(method.args)?;
+    if args.len() != 1 {
+        return Err(CoreError::Query(
+            "insertOne() expects a single document argument".into(),
+        ));
+    }
+    let document = require_document(args[0], "insertOne")?;
+    Ok(MongoQuery::InsertOne {
+        collection: collection.to_string(),
+        document,
+    })
+}
+
+/// `insertMany([doc, …])` — a single array argument whose elements are documents.
+fn parse_insert_many(
+    collection: &str,
+    method: &Call,
+    chain: &[Call],
+) -> Result<MongoQuery, CoreError> {
+    reject_terminal_only_chain(chain, "insertMany")?;
+    let args = split_top_level_args(method.args)?;
+    if args.len() != 1 {
+        return Err(CoreError::Query(
+            "insertMany() expects a single array-of-documents argument".into(),
+        ));
+    }
+    let Bson::Array(elements) = parse_json_arg(args[0], "insertMany")? else {
+        return Err(CoreError::Query(
+            "insertMany() argument must be an array of documents `[ { … }, … ]`".into(),
+        ));
+    };
+    // Every element must itself be a document.
+    for el in &elements {
+        if !matches!(el, Bson::Document(_)) {
+            return Err(CoreError::Query(
+                "insertMany() array elements must each be a document object `{ … }`".into(),
+            ));
+        }
+    }
+    Ok(MongoQuery::InsertMany {
+        collection: collection.to_string(),
+        documents: elements,
+    })
+}
+
+/// `updateOne(filter, update, options?)` / `updateMany(...)`. The update doc is
+/// passed through verbatim (typically `{ $set: {…} }`); we deliberately do *not*
+/// validate that it contains update operators — the server does. The optional
+/// third argument is an options doc from which we read `upsert` (default false).
+fn parse_update(collection: &str, method: &Call, chain: &[Call]) -> Result<MongoQuery, CoreError> {
+    reject_terminal_only_chain(chain, method.name)?;
+    let args = split_top_level_args(method.args)?;
+    if args.len() < 2 || args.len() > 3 {
+        return Err(CoreError::Query(format!(
+            "{}() expects (filter, update, options?)",
+            method.name
+        )));
+    }
+    let filter = require_document(args[0], method.name)?;
+    let update = require_document(args[1], method.name)?;
+    let upsert = optional_upsert(args.get(2).copied(), method.name)?;
+
+    let collection = collection.to_string();
+    Ok(if method.name == "updateOne" {
+        MongoQuery::UpdateOne {
+            collection,
+            filter,
+            update,
+            upsert,
+        }
+    } else {
+        MongoQuery::UpdateMany {
+            collection,
+            filter,
+            update,
+            upsert,
+        }
+    })
+}
+
+/// `replaceOne(filter, replacement, options?)` — like `update` but the second
+/// argument is a full replacement document and `upsert` comes from the options.
+fn parse_replace_one(
+    collection: &str,
+    method: &Call,
+    chain: &[Call],
+) -> Result<MongoQuery, CoreError> {
+    reject_terminal_only_chain(chain, "replaceOne")?;
+    let args = split_top_level_args(method.args)?;
+    if args.len() < 2 || args.len() > 3 {
+        return Err(CoreError::Query(
+            "replaceOne() expects (filter, replacement, options?)".into(),
+        ));
+    }
+    let filter = require_document(args[0], "replaceOne")?;
+    let replacement = require_document(args[1], "replaceOne")?;
+    let upsert = optional_upsert(args.get(2).copied(), "replaceOne")?;
+    Ok(MongoQuery::ReplaceOne {
+        collection: collection.to_string(),
+        filter,
+        replacement,
+        upsert,
+    })
+}
+
+/// `deleteOne(filter)` / `deleteMany(filter)`. The filter is **required**: a bare
+/// `deleteMany()` is dangerous (it would target every document), so we reject an
+/// empty argument list and tell the user to pass `{}` explicitly to target all.
+fn parse_delete(collection: &str, method: &Call, chain: &[Call]) -> Result<MongoQuery, CoreError> {
+    reject_terminal_only_chain(chain, method.name)?;
+    let args = split_top_level_args(method.args)?;
+    if args.is_empty() {
+        return Err(CoreError::Query(format!(
+            "{}() requires a filter; pass `{{}}` explicitly to target all documents",
+            method.name
+        )));
+    }
+    if args.len() != 1 {
+        return Err(CoreError::Query(format!(
+            "{}() expects a single filter argument",
+            method.name
+        )));
+    }
+    let filter = require_document(args[0], method.name)?;
+    let collection = collection.to_string();
+    Ok(if method.name == "deleteOne" {
+        MongoQuery::DeleteOne { collection, filter }
+    } else {
+        MongoQuery::DeleteMany { collection, filter }
+    })
+}
+
+/// `drop()` — no arguments; drops the whole collection.
+fn parse_drop(collection: &str, method: &Call, chain: &[Call]) -> Result<MongoQuery, CoreError> {
+    reject_terminal_only_chain(chain, "drop")?;
+    let args = split_top_level_args(method.args)?;
+    if !args.is_empty() {
+        return Err(CoreError::Query("drop() takes no arguments".into()));
+    }
+    Ok(MongoQuery::DropCollection {
+        collection: collection.to_string(),
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Chain handling
 // ---------------------------------------------------------------------------
 
@@ -356,6 +560,40 @@ fn optional_doc_arg(raw: Option<&str>, method: &str) -> Result<Option<Bson>, Cor
             }
             Ok(Some(b))
         }
+    }
+}
+
+/// Require a raw argument that parses to a document (`{...}`). Used for the
+/// required document arguments of the write methods (filter/update/replacement/
+/// inserted document).
+fn require_document(raw: &str, method: &str) -> Result<Bson, CoreError> {
+    let b = parse_json_arg(raw, method)?;
+    if !matches!(b, Bson::Document(_)) {
+        return Err(CoreError::Query(format!(
+            "{method}() argument must be a document object `{{ … }}`"
+        )));
+    }
+    Ok(b)
+}
+
+/// Parse an optional write-options document, returning its `upsert` flag
+/// (default `false`). The options doc must be an object when present, and if it
+/// carries an `upsert` key that key must be a boolean. Other option keys are
+/// tolerated but ignored — Selene surfaces only `upsert` for now.
+fn optional_upsert(raw: Option<&str>, method: &str) -> Result<bool, CoreError> {
+    let Some(options) = optional_doc_arg(raw, method)? else {
+        return Ok(false);
+    };
+    // `optional_doc_arg` guarantees a Document here.
+    let Bson::Document(doc) = options else {
+        return Ok(false);
+    };
+    match doc.get("upsert") {
+        None => Ok(false),
+        Some(Bson::Boolean(b)) => Ok(*b),
+        Some(_) => Err(CoreError::Query(format!(
+            "{method}() `upsert` option must be a boolean (`true`/`false`)"
+        ))),
     }
 }
 
@@ -789,12 +1027,126 @@ mod tests {
     }
 
     #[test]
-    fn write_method_is_unsupported() {
+    fn write_methods_parse() {
+        // insertOne → InsertOne with the document.
+        match parse(r#"db.c.insertOne({ "a": 1 })"#).unwrap() {
+            MongoQuery::InsertOne {
+                collection,
+                document,
+            } => {
+                assert_eq!(collection, "c");
+                assert_eq!(document, Bson::Document(doc! { "a": 1i64 }));
+            }
+            other => panic!("expected InsertOne, got {other:?}"),
+        }
+
+        // insertMany → the array elements as documents.
+        match parse(r#"db.c.insertMany([{ "a": 1 }, { "b": 2 }])"#).unwrap() {
+            MongoQuery::InsertMany {
+                collection,
+                documents,
+            } => {
+                assert_eq!(collection, "c");
+                assert_eq!(documents.len(), 2);
+                assert_eq!(documents[0], Bson::Document(doc! { "a": 1i64 }));
+            }
+            other => panic!("expected InsertMany, got {other:?}"),
+        }
+
+        // updateOne → filter, update, upsert defaulting to false.
+        match parse(r#"db.c.updateOne({ "a": 1 }, { "$set": { "b": 2 } })"#).unwrap() {
+            MongoQuery::UpdateOne {
+                collection,
+                filter,
+                update,
+                upsert,
+            } => {
+                assert_eq!(collection, "c");
+                assert_eq!(filter, Bson::Document(doc! { "a": 1i64 }));
+                assert_eq!(update, Bson::Document(doc! { "$set": { "b": 2i64 } }));
+                assert!(!upsert, "upsert defaults to false");
+            }
+            other => panic!("expected UpdateOne, got {other:?}"),
+        }
+
+        // updateMany parses to UpdateMany.
+        assert!(matches!(
+            parse(r#"db.c.updateMany({}, { "$set": { "b": 2 } })"#).unwrap(),
+            MongoQuery::UpdateMany { .. }
+        ));
+
+        // deleteMany with an explicit filter parses.
+        match parse("db.c.deleteMany({})").unwrap() {
+            MongoQuery::DeleteMany { collection, filter } => {
+                assert_eq!(collection, "c");
+                assert_eq!(filter, Bson::Document(doc! {}));
+            }
+            other => panic!("expected DeleteMany, got {other:?}"),
+        }
+        assert!(matches!(
+            parse(r#"db.c.deleteOne({ "a": 1 })"#).unwrap(),
+            MongoQuery::DeleteOne { .. }
+        ));
+
+        // replaceOne → filter + replacement.
+        match parse(r#"db.c.replaceOne({ "a": 1 }, { "a": 2 })"#).unwrap() {
+            MongoQuery::ReplaceOne {
+                filter,
+                replacement,
+                upsert,
+                ..
+            } => {
+                assert_eq!(filter, Bson::Document(doc! { "a": 1i64 }));
+                assert_eq!(replacement, Bson::Document(doc! { "a": 2i64 }));
+                assert!(!upsert);
+            }
+            other => panic!("expected ReplaceOne, got {other:?}"),
+        }
+
+        // drop() → DropCollection.
+        match parse("db.c.drop()").unwrap() {
+            MongoQuery::DropCollection { collection } => assert_eq!(collection, "c"),
+            other => panic!("expected DropCollection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_parses_upsert_option() {
+        match parse(r#"db.c.updateOne({ "a": 1 }, { "$set": { "b": 2 } }, { "upsert": true })"#)
+            .unwrap()
+        {
+            MongoQuery::UpdateOne { upsert, .. } => assert!(upsert, "upsert:true should parse"),
+            other => panic!("expected UpdateOne, got {other:?}"),
+        }
+        // replaceOne likewise reads upsert from its options doc.
+        match parse(r#"db.c.replaceOne({ "a": 1 }, { "a": 2 }, { "upsert": true })"#).unwrap() {
+            MongoQuery::ReplaceOne { upsert, .. } => assert!(upsert),
+            other => panic!("expected ReplaceOne, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_without_filter_is_query_error() {
+        // A bare deleteMany()/deleteOne() with no filter is refused (targeting
+        // every document must be explicit via `{}`).
+        for src in ["db.c.deleteMany()", "db.c.deleteOne()"] {
+            let err = parse(src).expect_err("a filter-less delete is rejected");
+            assert!(matches!(err, CoreError::Query(_)), "{src}: got {err:?}");
+        }
+    }
+
+    #[test]
+    fn still_unsupported_writes() {
+        // Higher-level writes that Selene does not yet run stay Unsupported.
         for src in [
-            r#"db.c.insertOne({ "a": 1 })"#,
-            r#"db.c.deleteMany({})"#,
-            r#"db.c.updateOne({}, {})"#,
-            "db.c.drop()",
+            r#"db.c.findOneAndUpdate({}, { "$set": { "a": 1 } })"#,
+            r#"db.c.findOneAndReplace({}, {})"#,
+            r#"db.c.findOneAndDelete({})"#,
+            "db.c.bulkWrite([])",
+            r#"db.c.createIndex({ "a": 1 })"#,
+            r#"db.c.createIndexes([{ "a": 1 }])"#,
+            r#"db.c.renameCollection("d")"#,
+            "db.c.dropDatabase()",
         ] {
             let err = parse(src).unwrap_err();
             assert!(
