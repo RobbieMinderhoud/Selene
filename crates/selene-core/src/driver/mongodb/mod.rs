@@ -6,18 +6,23 @@
 //!
 //! - **M1**: connect / ping / `test_connection` / capabilities +
 //!   `list_databases`.
-//! - **M2 (this PR)**: read query execution — a mongosh-shell-subset parser
-//!   ([`query`]), BSON→[`CellValue`] conversion ([`convert`]), and streaming of
+//! - **M2**: read query execution — a mongosh-shell-subset parser ([`query`]),
+//!   BSON→[`CellValue`] conversion ([`convert`]), and streaming of
 //!   `find`/`aggregate`/`countDocuments`/`distinct` into the result grid
-//!   ([`stream`]). Writes + the read-only guard + introspection-by-sampling land
-//!   in later PRs (`list_tables`/`list_columns` stay stubbed here).
+//!   ([`stream`]).
+//! - **M3 (this PR)**: introspection by sampling ([`introspect`]) — collections
+//!   as tables (views detected via `listCollections`), fields inferred as columns
+//!   from a document sample. The read-only *guard* lives in
+//!   `crate::guard::mongo_guard` (enforced server-side in `src-tauri`), not in the
+//!   driver. Writes remain out of scope here.
 //!
 //! Layout:
-//! - [`config`]  — `ConnectionSpec` + `Secret` → [`mongodb::options::ClientOptions`].
-//! - [`error`]   — `mongodb::error::Error` → [`CoreError`] (never leaking secrets).
-//! - [`query`]   — mongosh-subset parser → [`query::MongoQuery`].
-//! - [`convert`] — BSON → [`CellValue`] / [`LogicalType`].
-//! - [`stream`]  — cursor/count/distinct → [`RowSink`] events.
+//! - [`config`]     — `ConnectionSpec` + `Secret` → [`mongodb::options::ClientOptions`].
+//! - [`error`]      — `mongodb::error::Error` → [`CoreError`] (never leaking secrets).
+//! - [`query`]      — mongosh-subset parser → [`query::MongoQuery`].
+//! - [`convert`]    — BSON → [`CellValue`] / [`LogicalType`].
+//! - [`stream`]     — cursor/count/distinct → [`RowSink`] events.
+//! - [`introspect`] — `listCollections` + sampled-field columns.
 //!
 //! TLS uses the **rustls** backend (never native-tls — it breaks the handshake
 //! on macOS, exactly as for the mssql/sqlx drivers).
@@ -25,6 +30,7 @@
 mod config;
 mod convert;
 mod error;
+mod introspect;
 mod query;
 mod stream;
 
@@ -354,21 +360,23 @@ impl Connection for MongodbConnection {
 
     async fn list_tables(
         &mut self,
-        _database: &str,
+        database: &str,
         _schema: &str,
     ) -> Result<Vec<TableInfo>, CoreError> {
-        // TODO(mongodb M3): map `listCollections` → collections as tables.
-        Ok(Vec::new())
+        // MongoDB has no schema level; collections are the "tables". See
+        // `introspect::list_tables` (views detected via listCollections' type).
+        introspect::list_tables(&self.client, self.default_db.as_deref(), database).await
     }
 
     async fn list_columns(
         &mut self,
-        _database: &str,
+        database: &str,
         _schema: &str,
-        _table: &str,
+        table: &str,
     ) -> Result<Vec<ColumnInfo>, CoreError> {
-        // TODO(mongodb M3): infer a column shape by sampling documents.
-        Ok(Vec::new())
+        // Documents are schemaless, so columns are inferred by sampling. See
+        // `introspect::list_columns` (`$sample`, falling back to a bounded find).
+        introspect::list_columns(&self.client, self.default_db.as_deref(), database, table).await
     }
 
     async fn ping(&mut self) -> Result<(), CoreError> {

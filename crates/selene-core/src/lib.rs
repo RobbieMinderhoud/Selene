@@ -35,7 +35,7 @@ pub use error::CoreError;
 pub use export::{
     cell_to_text, CsvLineEnding, CsvOptions, CsvQuoteStyle, ExportFormat, ExportSummary, Exporter,
 };
-pub use guard::{classify, GuardLevel, GuardVerdict};
+pub use guard::{classify, classify_for, classify_mongo, GuardLevel, GuardVerdict};
 pub use import::{
     analyze_csv, coerce_cell, infer_type, logical_for_sql_type, CsvAnalysis, CsvImportOptions,
     CsvRowSource, DestColumn, ImportSummary, InferredType,

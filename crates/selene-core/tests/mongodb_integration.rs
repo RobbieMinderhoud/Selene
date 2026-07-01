@@ -10,6 +10,11 @@
 //!   `.sort().limit()` chain, `aggregate`, `countDocuments`, `distinct`,
 //!   `max_rows` truncation, a pre-cancelled token, and that a write method is
 //!   refused as `Unsupported`.
+//! - **M3**: introspection by sampling — `list_tables` (collections as `Table`,
+//!   a `viewOn` view as `View`, sorted), and `list_columns` (`_id` first + flagged
+//!   primary key, a sometimes-missing field reported `nullable`, types inferred).
+//!   The read-only guard is a pure-logic concern covered by `mongo_guard`'s own
+//!   unit tests, not here (it is enforced in `src-tauri`, not the driver).
 //!
 //! ## Why every test is `#[ignore]`-d
 //! A plain `cargo test` must stay hermetic and fast (the unit tests need no
@@ -41,7 +46,7 @@ use testcontainers_modules::mongo::Mongo;
 use selene_core::driver::driver_for;
 use selene_core::{
     AuthMethod, CancelToken, CellValue, Column, Connection, ConnectionSpec, CoreError, DriverId,
-    ExecOptions, Flow, LogicalType, RowSink, Secret, TlsConfig,
+    ExecOptions, Flow, LogicalType, RowSink, Secret, TableKind, TlsConfig,
 };
 
 /// The database the tests seed into and query against.
@@ -120,6 +125,28 @@ async fn seed(port: u16, docs: Vec<Document>) {
     let client = raw_client(port).await;
     let coll = client.database(TEST_DB).collection::<Document>(TEST_COLL);
     coll.insert_many(docs).await.expect("seed documents");
+}
+
+/// Insert `docs` into `TEST_DB.<collection>` via the raw client (introspection
+/// tests seed multiple named collections).
+async fn seed_named(port: u16, collection: &str, docs: Vec<Document>) {
+    let client = raw_client(port).await;
+    let coll = client.database(TEST_DB).collection::<Document>(collection);
+    coll.insert_many(docs).await.expect("seed named collection");
+}
+
+/// Create a MongoDB **view** (`view_name` over `on`, identity pipeline) via the
+/// raw client, so `list_tables` can report it as a `View`.
+async fn create_view(port: u16, view_name: &str, on: &str) {
+    let client = raw_client(port).await;
+    client
+        .database(TEST_DB)
+        .create_collection(view_name)
+        .view_on(on.to_string())
+        // An empty pipeline makes the view mirror its source collection 1:1.
+        .pipeline(Vec::<Document>::new())
+        .await
+        .expect("create view");
 }
 
 /// The heterogeneous fixture set: varied fields, an explicit `_id` ObjectId, a
@@ -605,4 +632,115 @@ async fn empty_result_is_empty_grid() {
     assert!(set.rows.is_empty());
     assert_eq!(set.set_end_count, 1, "an empty set is still closed once");
     assert_eq!(set.affected, vec![Some(0)]);
+}
+
+// ---------------------------------------------------------------------------
+// 13. (M3) list_tables reports collections as Table and a view as View, sorted.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn list_tables_reports_collections_and_views() {
+    let (mut fixture, port) = start_mongodb().await;
+    // Two base collections plus a view over one of them.
+    seed_named(port, "orders", vec![doc! { "n": 1i32 }]).await;
+    seed_named(port, "customers", vec![doc! { "n": 2i32 }]).await;
+    create_view(port, "orders_view", "orders").await;
+
+    let tables = fixture
+        .conn
+        .list_tables(TEST_DB, "")
+        .await
+        .expect("list_tables");
+
+    // Sorted by name for a stable tree.
+    let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(names, sorted, "tables must be name-sorted, got {names:?}");
+
+    // MongoDB has no schema level.
+    assert!(tables.iter().all(|t| t.schema.is_empty()));
+
+    let kind = |name: &str| {
+        tables
+            .iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from {names:?}"))
+            .kind
+    };
+    assert_eq!(kind("orders"), TableKind::Table);
+    assert_eq!(kind("customers"), TableKind::Table);
+    assert_eq!(
+        kind("orders_view"),
+        TableKind::View,
+        "the view must be View"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 14. (M3) list_columns samples fields: _id first + primary key, a
+//     sometimes-missing field is nullable, types inferred.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn list_columns_samples_field_shape() {
+    let (mut fixture, port) = start_mongodb().await;
+    // Heterogeneous docs: an explicit _id, nested fields, and `note` present in
+    // only one document (so it must be reported nullable).
+    seed(
+        port,
+        vec![
+            doc! {
+                "_id": ObjectId::new(),
+                "name": "alpha",
+                "qty": 3i32,
+                "meta": { "region": "eu" },
+                "note": "present",
+            },
+            doc! {
+                "_id": ObjectId::new(),
+                "name": "beta",
+                "qty": 7i32,
+                "meta": { "region": "us" },
+                // no `note` field → `note` must be nullable
+            },
+        ],
+    )
+    .await;
+
+    let cols = fixture
+        .conn
+        .list_columns(TEST_DB, "", TEST_COLL)
+        .await
+        .expect("list_columns");
+
+    // `_id` is forced first, at ordinal 0, and flagged primary key.
+    assert_eq!(cols[0].name, "_id", "columns: {cols:?}");
+    assert_eq!(cols[0].ordinal, 0);
+    assert!(cols[0].is_primary_key, "_id must be the primary key");
+    assert!(cols.iter().skip(1).all(|c| !c.is_primary_key));
+
+    let by = |name: &str| {
+        cols.iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("column {name} missing from {cols:?}"))
+    };
+
+    // Types inferred from the sampled values.
+    assert_eq!(by("_id").data_type, "objectId");
+    assert_eq!(by("name").data_type, "string");
+    assert_eq!(by("qty").data_type, "int");
+    assert_eq!(by("meta").data_type, "object");
+
+    // A field present in every document with a value is not nullable; `note`
+    // (missing from one document) is nullable.
+    assert!(!by("name").nullable, "name is always present");
+    assert!(by("note").nullable, "note is missing from one document");
+
+    // Ordinals are dense and 0-based.
+    for (i, c) in cols.iter().enumerate() {
+        assert_eq!(c.ordinal, i as i32, "ordinals must be dense: {cols:?}");
+    }
 }
