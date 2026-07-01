@@ -327,17 +327,25 @@ export type MultiEvent =
 // Connection / session types
 // ---------------------------------------------------------------------------
 
-/** Backend driver id (lowercase scalar). All four sqlx/tiberius drivers are live. */
-export type DriverId = "mssql" | "postgres" | "mysql" | "sqlite";
+/** Backend driver id (lowercase scalar). All sqlx/tiberius/mongodb drivers are live. */
+export type DriverId = "mssql" | "postgres" | "mysql" | "sqlite" | "mongodb";
 
 /**
  * How to authenticate. A discriminated union tagged by `method` (snake_case),
- * mirroring the Rust `AuthMethod`: `sql_login` carries a username; `none` is for
- * backends without authentication (e.g. a local SQLite file). The Rust enum is
- * `#[non_exhaustive]` for future Windows/Entra auth.
+ * mirroring the Rust `AuthMethod`: `sql_login` carries a username; `scram_login`
+ * is MongoDB SCRAM auth (a username plus an optional auth database and mechanism
+ * override); `none` is for backends without authentication (e.g. a local SQLite
+ * file, or an anonymous MongoDB connect). The Rust enum is `#[non_exhaustive]`
+ * for future Windows/Entra auth.
  */
 export type AuthMethod =
   | { method: "sql_login"; username: string }
+  | {
+      method: "scram_login";
+      username: string;
+      auth_source?: string | null;
+      mechanism?: string | null;
+    }
   | { method: "none" };
 
 /** Transport security settings (snake_case fields). */
@@ -354,6 +362,14 @@ export interface ConnectionSpec {
   host: string;
   port: number | null;
   instance: string | null;
+  /**
+   * A full connection string, if the user pasted one (MongoDB `mongodb://` /
+   * `mongodb+srv://`). When present, the MongoDB driver parses it and treats the
+   * discrete host/port/auth fields as overlays; other drivers ignore it. Mirrors
+   * the Rust `ConnectionSpec.uri: Option<String>` (`#[serde(default)]`, so
+   * sending `null`/omitting it is fine).
+   */
+  uri: string | null;
   database: string | null;
   auth: AuthMethod;
   tls: TlsConfig;

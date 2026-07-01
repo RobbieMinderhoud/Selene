@@ -38,7 +38,11 @@ interface FormState {
   port: string;
   database: string;
   instance: string;
+  /** MongoDB only: a full `mongodb://` / `mongodb+srv://` connection string. */
+  uri: string;
   username: string;
+  /** MongoDB only: the auth database for SCRAM (defaults to `admin` when blank). */
+  authSource: string;
   readOnly: boolean;
   trustCert: boolean;
 }
@@ -57,8 +61,15 @@ function specToForm(spec: ConnectionSpec | null): FormState {
     port: spec?.port != null ? String(spec.port) : "",
     database: spec?.database ?? "",
     instance: spec?.instance ?? "",
-    // The auth union only carries a username for `sql_login` (SQLite uses `none`).
-    username: spec?.auth.method === "sql_login" ? spec.auth.username : "",
+    uri: spec?.uri ?? "",
+    // Both login variants carry a username (`sql_login` for SQL Server,
+    // `scram_login` for MongoDB); `none` (SQLite / anonymous Mongo) has none.
+    username:
+      spec?.auth.method === "sql_login" || spec?.auth.method === "scram_login"
+        ? spec.auth.username
+        : "",
+    authSource:
+      spec?.auth.method === "scram_login" ? (spec.auth.auth_source ?? "") : "",
     readOnly: spec?.read_only ?? defaultReadOnly,
     trustCert: spec?.tls.trust_server_certificate ?? false,
   };
@@ -114,9 +125,40 @@ export function ConnectionDialog({
         host: form.host.trim(),
         port: null,
         instance: null,
+        uri: null,
         database: null,
         auth: { method: "none" },
         tls: { encrypt: true, trust_server_certificate: false },
+        read_only: form.readOnly,
+      };
+    }
+
+    // MongoDB accepts either a full `mongodb://` / `mongodb+srv://` URI (which
+    // takes precedence) or discrete host/port/auth fields. Auth is anonymous
+    // (`none`) when neither a username nor a URI is given, else SCRAM.
+    if (form.driver === "mongodb") {
+      const portNum = form.port.trim() ? Number(form.port.trim()) : null;
+      const uri = form.uri.trim() || null;
+      const username = form.username.trim();
+      const anonymous = !username && !uri;
+      return {
+        id,
+        name,
+        driver: "mongodb",
+        host: form.host.trim(),
+        port: portNum != null && Number.isFinite(portNum) ? portNum : null,
+        instance: null,
+        uri,
+        database: form.database.trim() || null,
+        auth: anonymous
+          ? { method: "none" }
+          : {
+              method: "scram_login",
+              username,
+              auth_source: form.authSource.trim() || null,
+              mechanism: null,
+            },
+        tls: { encrypt: true, trust_server_certificate: form.trustCert },
         read_only: form.readOnly,
       };
     }
@@ -130,6 +172,7 @@ export function ConnectionDialog({
       port: portNum != null && Number.isFinite(portNum) ? portNum : null,
       // The named-instance field is MSSQL-only; never send it for pg/mysql.
       instance: form.driver === "mssql" ? form.instance.trim() || null : null,
+      uri: null,
       database: form.database.trim() || null,
       auth: { method: "sql_login", username: form.username.trim() },
       tls: { encrypt: true, trust_server_certificate: form.trustCert },
@@ -140,6 +183,13 @@ export function ConnectionDialog({
   function validate(): string | null {
     if (form.driver === "sqlite") {
       if (!form.host.trim()) return "Database file is required.";
+      return null;
+    }
+    // MongoDB: either a URI or a host suffices; username/password are optional
+    // (an anonymous connect is valid).
+    if (form.driver === "mongodb") {
+      if (!form.uri.trim() && !form.host.trim())
+        return "A host or connection string is required.";
       return null;
     }
     if (!form.host.trim()) return "Host is required.";
@@ -160,6 +210,7 @@ export function ConnectionDialog({
 
   const isSqlite = form.driver === "sqlite";
   const isMssql = form.driver === "mssql";
+  const isMongo = form.driver === "mongodb";
 
   async function handleTest() {
     const err = validate();
@@ -300,6 +351,28 @@ export function ConnectionDialog({
           </div>
         ) : (
           <>
+            {/* MongoDB accepts a full connection string that overrides the
+                discrete host/port/auth fields below (incl. `mongodb+srv://`). */}
+            {isMongo && (
+              <div className={styles.field}>
+                <label htmlFor="conn-uri">Connection string (optional)</label>
+                <input
+                  id="conn-uri"
+                  value={form.uri}
+                  placeholder="mongodb+srv://cluster.example.net"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onChange={(e) => field("uri", e.target.value)}
+                />
+                <small className={styles.hint}>
+                  A URI (including <code>mongodb+srv://</code>) takes precedence
+                  over the host/port fields below.
+                </small>
+              </div>
+            )}
+
             <div className={styles.row}>
               <div className={`${styles.field} ${styles.grow}`}>
                 <label htmlFor="conn-host">Host</label>
@@ -335,7 +408,9 @@ export function ConnectionDialog({
                 <input
                   id="conn-db"
                   value={form.database}
-                  placeholder={isMssql ? "master" : "postgres"}
+                  placeholder={
+                    isMssql ? "master" : isMongo ? "admin" : "postgres"
+                  }
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"
@@ -389,6 +464,23 @@ export function ConnectionDialog({
                 />
               </div>
             </div>
+
+            {/* The SCRAM auth database is MongoDB-specific (defaults to `admin`). */}
+            {isMongo && (
+              <div className={styles.field}>
+                <label htmlFor="conn-authsource">Auth source (optional)</label>
+                <input
+                  id="conn-authsource"
+                  value={form.authSource}
+                  placeholder="admin"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onChange={(e) => field("authSource", e.target.value)}
+                />
+              </div>
+            )}
           </>
         )}
 

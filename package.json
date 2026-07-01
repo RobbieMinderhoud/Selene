@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.12.3",
     "@codemirror/search": "^6.7.1",

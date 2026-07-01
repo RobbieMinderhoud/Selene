@@ -23,8 +23,8 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 
 use selene_core::{
-    classify, classify_for, CancelToken, CellValue, Column, ExecOptions, Flow, GuardLevel,
-    GuardVerdict, RowSink,
+    classify, classify_for, CancelToken, CellValue, Column, DriverId, ExecOptions, Flow,
+    GuardLevel, GuardVerdict, RowSink,
 };
 
 use crate::commands::QueryEvent;
@@ -94,20 +94,27 @@ impl RowSink for ChannelSink {
     }
 }
 
-/// Classify a SQL batch for safety. A thin wrapper over
-/// [`selene_core::classify`]; `read_only` reflects the connection's safety
-/// toggle. Pure and synchronous, but exposed as a command so the editor can
-/// show a warning before the user runs anything.
+/// Classify a query for safety. A thin wrapper over the core guard;
+/// `read_only` reflects the connection's safety toggle. Pure and synchronous,
+/// but exposed as a command so the editor can show a warning before the user
+/// runs anything.
 ///
-/// This advisory pre-check stays SQL-only for now: making it driver-aware (so a
-/// MongoDB tab pre-flights through [`classify_mongo`](selene_core::classify_mongo))
-/// requires the frontend to pass the session, which lands in M4 when MongoDB is
-/// wired into the UI. The **authoritative** guard is enforced server-side in
-/// [`query_run`], which *is* driver-aware — so a write on a read-only MongoDB
-/// connection is refused there regardless of this pre-check.
+/// `driver` makes the advisory pre-check driver-aware: a MongoDB tab passes its
+/// driver so mongosh method calls pre-flight through the Mongo classifier
+/// ([`classify_for`]) rather than the SQL one. When it is omitted (e.g. the
+/// SQL-only multi-target caller), the check falls back to [`classify`]. The
+/// **authoritative** guard is still enforced server-side in [`query_run`],
+/// which is likewise driver-aware.
 #[tauri::command]
-pub async fn guard_check(sql: String, read_only: bool) -> Result<GuardVerdict, IpcError> {
-    Ok(classify(&sql, read_only))
+pub async fn guard_check(
+    sql: String,
+    read_only: bool,
+    driver: Option<DriverId>,
+) -> Result<GuardVerdict, IpcError> {
+    Ok(match driver {
+        Some(d) => classify_for(d, &sql, read_only),
+        None => classify(&sql, read_only),
+    })
 }
 
 /// Run a SQL batch, streaming results to the frontend over `on_event`.

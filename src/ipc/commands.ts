@@ -26,6 +26,7 @@ import type {
   CsvAnalysis,
   CsvOptions,
   DatabaseInfo,
+  DriverId,
   ExportEvent,
   ExportFormat,
   ExportSummary,
@@ -232,12 +233,17 @@ export function columnsList(
 
 // --- Guard ----------------------------------------------------------------
 
-/** `guard_check` -> classify a SQL batch for safety before running it. */
+/**
+ * `guard_check` -> classify a query for safety before running it. Pass the tab's
+ * `driver` so a MongoDB tab pre-flights through the Mongo classifier (mongosh
+ * method calls, not SQL); omitting it falls back to the SQL classifier.
+ */
 export function guardCheck(
   sql: string,
   readOnly: boolean,
+  driver?: DriverId,
 ): Promise<GuardVerdict> {
-  return invoke("guard_check", { sql, readOnly });
+  return invoke("guard_check", { sql, readOnly, driver: driver ?? null });
 }
 
 // --- Query (streaming) ----------------------------------------------------
