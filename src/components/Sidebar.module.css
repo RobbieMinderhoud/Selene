@@ -26,21 +26,30 @@
   overflow: hidden; /* clips content when collapsed or height-capped */
   /*
    * Panels may shrink when their combined heights would overflow the sidebar,
-   * but never below their own header: min-content resolves to the header height
-   * because the body's scroll container (.sectionBodyInner, overflow:hidden)
-   * contributes 0. This keeps every title bar visible and lets the inner lists
-   * scroll within the remaining space, instead of the bottom panel collapsing
-   * to 0 and the overflow being clipped off-screen.
+   * but never below their own header, so every title bar stays visible and the
+   * inner lists scroll within the remaining space (instead of a panel growing
+   * to its full content height and the overflow being clipped off-screen).
+   *
+   * The floor is a *definite* header height, NOT `min-height: min-content`.
+   * min-content held at the header on WebKit (macOS WKWebView) because the
+   * overflow:hidden body contributes 0, but on Blink (Windows WebView2) the
+   * `min-content` keyword still resolves to the body's full content height, so
+   * every section ballooned and its scroll container never got a bounded height
+   * — the sidebar lists became unscrollable on Windows. A definite floor sizes
+   * identically in both engines. The value tracks the header box: vertical
+   * padding (2 × --sp-2) + the tallest header line (--fs-lg icons/buttons) + a
+   * hairline so the header is never clipped.
    */
   flex-grow: 0;
   flex-shrink: 1;
-  min-height: min-content;
+  min-height: calc(2 * var(--sp-2) + var(--fs-lg) + 2px);
 }
 
 /* The last panel in the order grows to fill remaining space. */
 .sectionFlex {
   flex: 1 1 0;
-  /* Inherits min-height:min-content from .section so its header stays visible too. */
+  /* Inherits the definite header-height floor from .section so its header stays
+     visible too (see .section: flex:1 1 0 would otherwise collapse it to 0). */
 }
 
 /* Drop-target highlight during panel reordering. */

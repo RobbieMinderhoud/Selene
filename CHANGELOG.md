@@ -8,6 +8,15 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.4.2] - 2026-07-02
+
+### Fixed
+
+- **The sidebar lists scroll again on Windows.** The Connections, Files, and
+  Schema panels couldn't be scrolled on Windows — long lists overflowed their
+  panel and were clipped off-screen. They now scroll within the available space,
+  with every panel header staying visible. (macOS was unaffected.)
+
 ## [1.4.1] - 2026-07-02
 
 ### Added
