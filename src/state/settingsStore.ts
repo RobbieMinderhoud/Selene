@@ -15,6 +15,13 @@ export type ImportQuoteChar = '"' | "'" | "none";
 export type CsvQuoteStyle = "necessary" | "always" | "non_numeric" | "never";
 export type CsvLineEnding = "lf" | "crlf";
 
+/**
+ * Keyboard shortcut that runs the current statement/selection.
+ * `mod-enter` = Cmd/Ctrl+Enter (default), `f5` = F5 (SSMS/DBeaver-style),
+ * `both` = either.
+ */
+export type RunShortcut = "mod-enter" | "f5" | "both";
+
 export interface Settings {
   appearance: { reduceMotion: ReduceMotion };
   editor: {
@@ -27,6 +34,11 @@ export interface Settings {
     schemaCompletion: boolean;
     bracketPairs: boolean; // matching + auto-close, combined
     upperCaseKeywords: boolean;
+  };
+  /** Editor keyboard shortcuts. */
+  keybindings: {
+    /** Which key runs the current statement/selection. */
+    runQuery: RunShortcut;
   };
   results: {
     /** Hard row cap sent to the backend. Must be one of the picker values. */
@@ -121,6 +133,7 @@ const DEFAULTS: Settings = {
     bracketPairs: true,
     upperCaseKeywords: true,
   },
+  keybindings: { runQuery: "mod-enter" },
   results: {
     defaultRowLimit: 50_000,
     density: "normal",
@@ -236,6 +249,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         JSON.stringify({
           appearance: merged.appearance,
           editor: merged.editor,
+          keybindings: merged.keybindings,
           results: merged.results,
           search: merged.search,
           query: merged.query,
@@ -263,6 +277,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         JSON.stringify({
           appearance: merged.appearance,
           editor: merged.editor,
+          keybindings: merged.keybindings,
           results: merged.results,
           search: merged.search,
           query: merged.query,

@@ -74,6 +74,7 @@ export function SqlEditor({
   );
   const themeMode = useThemeStore((s) => s.mode);
   const editor = useSettingsStore((s) => s.editor);
+  const runShortcut = useSettingsStore((s) => s.keybindings.runQuery);
 
   // The live view, captured on creation, so the find/replace overlay can drive
   // the search query API against it.
@@ -117,21 +118,26 @@ export function SqlEditor({
     // SQL path unchanged.
     const isMongo = driver === "mongodb";
     const dialect = dialectFor(driver);
+    // Run the current selection, or the whole document when nothing is selected.
+    const runSelection = (view: EditorView) => {
+      const state = view.state;
+      const sel = state.selection.main;
+      const text = sel.empty
+        ? state.doc.toString()
+        : state.sliceDoc(sel.from, sel.to);
+      onRun(text);
+      return true;
+    };
+    // Which key(s) trigger a run, per the user's `keybindings.runQuery` setting.
+    const runKeys = runShortcut === "f5" ? ["F5"] : ["Mod-Enter"];
+    if (runShortcut === "both") runKeys.push("F5");
     const editorKeymap = Prec.highest(
       keymap.of([
-        {
-          key: "Mod-Enter",
+        ...runKeys.map((key) => ({
+          key,
           preventDefault: true,
-          run: (view) => {
-            const state = view.state;
-            const sel = state.selection.main;
-            const text = sel.empty
-              ? state.doc.toString()
-              : state.sliceDoc(sel.from, sel.to);
-            onRun(text);
-            return true;
-          },
-        },
+          run: runSelection,
+        })),
         // Open our themed find/replace overlay instead of CodeMirror's stock
         // panel (the default Mod-f binding is suppressed via `searchKeymap:false`).
         {
@@ -193,6 +199,7 @@ export function SqlEditor({
     onRun,
     schemaSource,
     driver,
+    runShortcut,
     editor.upperCaseKeywords,
     editor.fontSize,
     editor.tabSize,

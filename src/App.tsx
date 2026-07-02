@@ -219,9 +219,24 @@ export default function App() {
     };
     if (!isMac) window.addEventListener("keydown", onKey);
 
+    // A desktop app must never reload its webview, so swallow the browser refresh
+    // shortcuts (F5, Cmd/Ctrl+R) on every platform. F5 doubles as a configurable
+    // "run query" shortcut; the editor keymap handles that when focused, and
+    // blocking the default reload here doesn't interfere with it.
+    const onRefreshKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "F5" ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r")
+      ) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onRefreshKey);
+
     return () => {
       subs.forEach((p) => p.then((fn) => fn()));
       if (!isMac) window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onRefreshKey);
     };
   }, []);
 
