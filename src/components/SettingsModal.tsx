@@ -12,6 +12,7 @@ import {
   type NullDisplay,
   type ReduceMotion,
   type RowDensity,
+  type RunShortcut,
 } from "../state/settingsStore";
 import {
   connectionsList,
@@ -378,6 +379,17 @@ export function SettingsModal({
               help="Completions write SELECT, FROM, WHERE in upper-case."
               value={s.editor.upperCaseKeywords}
               onChange={(v) => setSection("editor", { upperCaseKeywords: v })}
+            />
+            <SettingSelect<RunShortcut>
+              label="Run query shortcut"
+              help="Key that executes the current statement (or selection). Applies to open editors immediately."
+              value={s.keybindings.runQuery}
+              options={[
+                ["mod-enter", "Cmd/Ctrl+Enter"],
+                ["f5", "F5"],
+                ["both", "Both (Cmd/Ctrl+Enter and F5)"],
+              ]}
+              onChange={(v) => setSection("keybindings", { runQuery: v })}
             />
           </section>
 

@@ -67,6 +67,27 @@ describe("settingsStore — import section", () => {
   });
 });
 
+describe("settingsStore — keybindings section", () => {
+  it("defaults the run shortcut to Cmd/Ctrl+Enter", () => {
+    expect(useSettingsStore.getState().keybindings).toEqual({
+      runQuery: "mod-enter",
+    });
+  });
+
+  it("persists the keybindings section to localStorage on set", () => {
+    useSettingsStore.getState().set("keybindings", { runQuery: "f5" });
+
+    expect(useSettingsStore.getState().keybindings.runQuery).toBe("f5");
+    // The serialised blob MUST include the keybindings section (two-block gotcha).
+    expect(stored().keybindings).toEqual({ runQuery: "f5" });
+  });
+
+  it("fills the keybindings section from defaults when a saved blob predates it", () => {
+    useSettingsStore.getState().importSettings({ export: { delimiter: "," } });
+    expect(useSettingsStore.getState().keybindings.runQuery).toBe("mod-enter");
+  });
+});
+
 describe("settingsStore — multiTarget section", () => {
   it("has sensible defaults", () => {
     const mt = useSettingsStore.getState().multiTarget;
