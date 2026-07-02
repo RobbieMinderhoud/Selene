@@ -8,7 +8,7 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
-## [Unreleased]
+## [1.4.1] - 2026-07-02
 
 ### Added
 
@@ -16,6 +16,16 @@ yet set up.)
   execute from the editor (`db.coll.insertOne(...)`, `.updateMany(...)`,
   `.deleteMany({})`, …), reporting the affected-document count; read-only
   connections still block them.
+- **Choose the key that runs a query.** A new _Run query shortcut_ setting
+  (Settings → General → Editor) runs the current statement (or selection) with
+  Cmd/Ctrl+Enter (default), F5, or both. Open editors pick up the change
+  immediately.
+
+### Fixed
+
+- **The window never refreshes itself.** F5 and Cmd/Ctrl+R are now ignored, so
+  the app can't reload and drop your open editor tabs. Selecting F5 as the run
+  shortcut still executes the query.
 
 ## [1.4.0] - 2026-07-01
 
