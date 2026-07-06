@@ -13,6 +13,22 @@ slot in later without rework. macOS-first; Windows/Linux kept in mind.
 > original codename `SELECT`). Crates are `selene-*`; bundle id `com.selene.app`.
 > Public on GitHub: https://github.com/RobbieMinderhoud/Selene.
 
+## Boilerplate (shared skeleton)
+
+Selene's shared skeleton — the Cargo workspace shape (a `*-core` crate with
+zero Tauri dependency + a thin `src-tauri` IPC layer + a presentation-only
+React frontend), the `justfile`, `scripts/sync-version.sh`, CI, the shared
+config files, the design tokens, and the layering/IPC conventions — is
+extracted into a standalone template:
+
+- **Repo:** <https://github.com/RobbieMinderhoud/rust-application-boilerplate>
+  (`../rust-application-boilerplate` locally). It is the **upstream** source of
+  truth for the skeleton; Selene carries its domain (SQL drivers, editor,
+  results grid) on top.
+- **Rule:** when a change here touches the **shared skeleton or conventions**
+  (not Selene-specific domain code), also open a **PR against the boilerplate**
+  so it stays current. App-specific code does not flow back.
+
 ## Status — v1.0
 
 - ✅ **`selene-core`** data layer: driver abstraction, MSSQL driver (tiberius),
