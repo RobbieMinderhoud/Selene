@@ -8,6 +8,26 @@ Internal refactors, tooling, and chores are intentionally omitted. (Automated
 changelog generation from Conventional Commits via git-cliff is planned but not
 yet set up.)
 
+## [1.4.3] - 2026-07-07
+
+### Fixed
+
+- **The guard "run anyway" shortcut works every time now.** When the SQL guard
+  warned before running a query, pressing the run shortcut again to proceed only
+  worked on the very first warning and never again in that session. The guard
+  dialog now regains focus each time it appears, so Enter/Cmd+Enter confirms it
+  reliably.
+- **Cmd/Ctrl+F focuses the search field.** Opening find no longer requires
+  clicking the box first — the Find field is focused (and its contents selected)
+  as soon as the search bar opens, so you can type straight away.
+
+### Changed
+
+- **Find and replace shortcuts do more while the search bar is open.**
+  Cmd/Ctrl+R now opens the replace row when the search bar is already showing,
+  and pressing Cmd/Ctrl+F again re-seeds the field with the word you currently
+  have selected in the editor.
+
 ## [1.4.2] - 2026-07-02
 
 ### Fixed
