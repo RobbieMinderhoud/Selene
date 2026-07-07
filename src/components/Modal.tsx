@@ -42,12 +42,17 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Focus the card only when the dialog *opens* — keyed on `open` alone so an
-  // unstable `onClose` (a fresh closure each render of the parent) can't re-fire
-  // this and steal focus from an input mid-typing.
+  // Focus the card whenever the dialog opens. Keyed on `open` *and* `mounted`
+  // (both only change at open/close boundaries, so an unstable `onClose` can't
+  // re-fire this and steal focus mid-typing). `mounted` matters for a dialog
+  // that is kept mounted across closes and reopened (e.g. GuardModal): on reopen
+  // `open` flips true one render before usePresence remounts the card, so keying
+  // on `open` alone runs the focus before `cardRef` exists and never refocuses —
+  // which left the guard modal unfocusable after its first use, so Enter/Cmd+Enter
+  // no longer confirmed it.
   useEffect(() => {
-    if (open) cardRef.current?.focus({ preventScroll: true });
-  }, [open]);
+    if (open && mounted) cardRef.current?.focus({ preventScroll: true });
+  }, [open, mounted]);
 
   if (!mounted) return null;
 

@@ -13,7 +13,14 @@
  * via `settingsStore` so the panel reopens the way the user left it.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import type { EditorView } from "@codemirror/view";
 import {
   SearchQuery,
@@ -46,6 +53,12 @@ interface EditorSearchProps {
   open: boolean;
   /** Whether the replace row is expanded. */
   replaceMode: boolean;
+  /**
+   * A nonce bumped by the parent each time the open shortcut is (re-)pressed.
+   * Re-seeds the Find field from the editor's current selection and refocuses
+   * it, so pressing Cmd/Ctrl+F again with a new word selected picks it up.
+   */
+  seedTick?: number;
   onReplaceModeChange: (next: boolean) => void;
   onClose: () => void;
 }
@@ -84,6 +97,7 @@ export function EditorSearch({
   view,
   open,
   replaceMode,
+  seedTick = 0,
   onReplaceModeChange,
   onClose,
 }: EditorSearchProps) {
@@ -122,20 +136,29 @@ export function EditorSearch({
     setStats(computeStats(view, q));
   }, [open, view, buildQuery]);
 
-  // On open: seed from the current selection (single-line only) and focus.
-  useEffect(() => {
-    if (!open || !view) return;
+  // Seed the Find field from the editor's current selection (single-line only),
+  // then focus and select it so the user can type over it. Used both on open and
+  // when the open shortcut is re-pressed (see the effect below).
+  const reseedFromSelection = useCallback(() => {
+    if (!view) return;
     const sel = view.state.selection.main;
     if (!sel.empty) {
       const text = view.state.sliceDoc(sel.from, sel.to);
       if (text && !text.includes("\n")) setQuery(text);
     }
-    const id = requestAnimationFrame(() => {
-      searchRef.current?.focus();
-      searchRef.current?.select();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [open, view]);
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  }, [view]);
+
+  // Seed + focus once the panel is actually mounted (usePresence mounts it a
+  // render after `open` flips true, so gating on `mounted` guarantees the input
+  // exists — keying on `open` alone focused before the input rendered, so
+  // Cmd/Ctrl+F never landed focus). Re-runs when `seedTick` bumps so re-pressing
+  // the shortcut re-seeds a freshly selected word.
+  useEffect(() => {
+    if (!open || !mounted) return;
+    reseedFromSelection();
+  }, [open, mounted, seedTick, reseedFromSelection]);
 
   // On close: drop the highlight and hand focus back to the editor.
   useEffect(() => {
@@ -161,6 +184,24 @@ export function EditorSearch({
     [opts, setSettings],
   );
 
+  // When focus is inside the panel the editor keymap can't fire, so handle the
+  // open/replace shortcuts here too: Cmd/Ctrl+F re-seeds from the selection,
+  // Cmd/Ctrl+R expands the replace row.
+  const onPanelKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === "f" && !e.altKey) {
+        e.preventDefault();
+        reseedFromSelection();
+      } else if (e.key === "r") {
+        e.preventDefault();
+        onReplaceModeChange(true);
+      }
+    },
+    [reseedFromSelection, onReplaceModeChange],
+  );
+
   const statusText = useMemo(() => {
     if (!query) return "";
     if (stats.invalid) return "Bad pattern";
@@ -180,6 +221,7 @@ export function EditorSearch({
       data-state={state}
       role="search"
       aria-label="Find in editor"
+      onKeyDown={onPanelKeyDown}
     >
       <button
         type="button"

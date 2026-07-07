@@ -79,12 +79,31 @@ export function SqlEditor({
   // The live view, captured on creation, so the find/replace overlay can drive
   // the search query API against it.
   const [view, setView] = useState<EditorView | null>(null);
-  const [find, setFind] = useState({ open: false, replace: false });
+  // `seed` is a nonce bumped on every open/re-open request so the overlay
+  // re-seeds from the editor's current selection and refocuses its input each
+  // time — not only on the first open (see EditorSearch).
+  const [find, setFind] = useState({ open: false, replace: false, seed: 0 });
   // A stable handle the editor keymap calls to open the overlay; kept in a ref so
   // the (memoized) extensions never rebuild when this closure changes per render.
-  const openFind = (replace: boolean) => setFind({ open: true, replace });
+  // Opening keeps the current replace row when already open, and always bumps the
+  // seed so re-pressing the shortcut re-seeds the selection.
+  const openFind = (replace: boolean) =>
+    setFind((f) => ({
+      open: true,
+      replace: replace || (f.open ? f.replace : false),
+      seed: f.seed + 1,
+    }));
   const openFindRef = useRef(openFind);
   openFindRef.current = openFind;
+  // Expand the replace row (used by Cmd/Ctrl+R). Only meaningful while the panel
+  // is open; the keymap gates on that so it never hijacks the shortcut otherwise.
+  const openReplace = () =>
+    setFind((f) => ({ ...f, open: true, replace: true }));
+  const openReplaceRef = useRef(openReplace);
+  openReplaceRef.current = openReplace;
+  // Mirror of `find.open` for the memoized keymap to read without rebuilding.
+  const findOpenRef = useRef(find.open);
+  findOpenRef.current = find.open;
 
   // githubLight hard-codes a white background via its own EditorView.theme().
   // For the retro palette we need to punch through that with Prec.highest so
@@ -153,6 +172,16 @@ export function SqlEditor({
           preventDefault: true,
           run: () => {
             openFindRef.current(true);
+            return true;
+          },
+        },
+        // Cmd/Ctrl+R expands the replace row — but only while the overlay is
+        // already open, so we never swallow the shortcut when it isn't shown.
+        {
+          key: "Mod-r",
+          run: () => {
+            if (!findOpenRef.current) return false;
+            openReplaceRef.current();
             return true;
           },
         },
@@ -242,6 +271,7 @@ export function SqlEditor({
         view={view}
         open={find.open}
         replaceMode={find.replace}
+        seedTick={find.seed}
         onReplaceModeChange={(replace) => setFind((f) => ({ ...f, replace }))}
         onClose={() => setFind((f) => ({ ...f, open: false }))}
       />

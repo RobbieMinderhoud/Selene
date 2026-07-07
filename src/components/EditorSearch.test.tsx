@@ -7,7 +7,7 @@
  * replace-all all run against genuine `@codemirror/search` behaviour.
  */
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
@@ -17,11 +17,14 @@ import { search } from "@codemirror/search";
 import { EditorSearch } from "./EditorSearch";
 import { useSettingsStore } from "../state/settingsStore";
 
-function makeView(doc: string): EditorView {
+function makeView(
+  doc: string,
+  selection?: { anchor: number; head: number },
+): EditorView {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   return new EditorView({
-    state: EditorState.create({ doc, extensions: [search()] }),
+    state: EditorState.create({ doc, selection, extensions: [search()] }),
     parent,
   });
 }
@@ -169,5 +172,91 @@ describe("EditorSearch", () => {
       screen.getByRole("button", { name: "Use regular expression" }),
     );
     expect(useSettingsStore.getState().search.regexp).toBe(true);
+  });
+
+  it("focuses the Find input when it opens", async () => {
+    view = makeView("select 1");
+    const props = {
+      view,
+      replaceMode: false,
+      onReplaceModeChange: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(<EditorSearch {...props} open={false} />);
+    rerender(<EditorSearch {...props} open={true} />);
+
+    const input = screen.getByPlaceholderText("Find");
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("seeds the Find field from the selection on open", () => {
+    view = makeView("alpha beta", { anchor: 0, head: 5 });
+    render(
+      <EditorSearch
+        view={view}
+        open={true}
+        replaceMode={false}
+        onReplaceModeChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByPlaceholderText("Find")).toHaveValue("alpha");
+  });
+
+  it("re-seeds from a new selection when the shortcut is re-pressed (seedTick)", async () => {
+    view = makeView("alpha beta", { anchor: 0, head: 5 });
+    const props = {
+      view,
+      open: true,
+      replaceMode: false,
+      onReplaceModeChange: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(<EditorSearch {...props} seedTick={1} />);
+    expect(screen.getByPlaceholderText("Find")).toHaveValue("alpha");
+
+    act(() => view!.dispatch({ selection: { anchor: 6, head: 10 } }));
+    rerender(<EditorSearch {...props} seedTick={2} />);
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Find")).toHaveValue("beta"),
+    );
+  });
+
+  it("expands the replace row on Cmd/Ctrl+R while open", async () => {
+    const user = userEvent.setup();
+    const onReplaceModeChange = vi.fn();
+    view = makeView("select 1");
+    render(
+      <EditorSearch
+        view={view}
+        open={true}
+        replaceMode={false}
+        onReplaceModeChange={onReplaceModeChange}
+        onClose={vi.fn()}
+      />,
+    );
+    screen.getByPlaceholderText("Find").focus();
+    await user.keyboard("{Control>}r{/Control}");
+    expect(onReplaceModeChange).toHaveBeenCalledWith(true);
+  });
+
+  it("re-seeds from the selection on Cmd/Ctrl+F while focus is in the panel", async () => {
+    const user = userEvent.setup();
+    view = makeView("alpha beta");
+    render(
+      <EditorSearch
+        view={view}
+        open={true}
+        replaceMode={false}
+        onReplaceModeChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    act(() => view!.dispatch({ selection: { anchor: 6, head: 10 } }));
+    screen.getByPlaceholderText("Find").focus();
+    await user.keyboard("{Control>}f{/Control}");
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Find")).toHaveValue("beta"),
+    );
   });
 });
