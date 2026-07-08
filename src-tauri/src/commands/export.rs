@@ -23,7 +23,7 @@ use selene_core::{
     ExportSummary, Exporter, Flow, RowSink,
 };
 
-use crate::commands::ExportEvent;
+use crate::commands::{first_byte, ExportEvent};
 use crate::error::IpcError;
 use crate::state::AppState;
 
@@ -45,8 +45,8 @@ pub(crate) struct CsvExportOptions {
 impl CsvExportOptions {
     pub(crate) fn into_core(self) -> CsvOptions {
         CsvOptions {
-            delimiter: first_byte(self.delimiter, b';'),
-            quote: first_byte(self.quote, b'"'),
+            delimiter: first_byte(self.delimiter.as_deref(), b';'),
+            quote: first_byte(self.quote.as_deref(), b'"'),
             quote_style: match self.quote_style.as_deref() {
                 Some("always") => CsvQuoteStyle::Always,
                 Some("non_numeric") => CsvQuoteStyle::NonNumeric,
@@ -61,12 +61,6 @@ impl CsvExportOptions {
             bom: self.bom.unwrap_or(false),
         }
     }
-}
-
-fn first_byte(s: Option<String>, fallback: u8) -> u8 {
-    s.as_deref()
-        .and_then(|v| v.as_bytes().first().copied())
-        .unwrap_or(fallback)
 }
 
 /// A [`RowSink`] that writes through to an [`Exporter`] while emitting

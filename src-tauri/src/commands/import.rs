@@ -25,7 +25,7 @@ use selene_core::{
     CsvImportOptions, CsvRowSource, DestColumn, ImportSummary, ImportTarget, NewColumn, RowSource,
 };
 
-use crate::commands::ImportEvent;
+use crate::commands::{first_byte, ImportEvent};
 use crate::error::IpcError;
 use crate::state::AppState;
 
@@ -65,11 +65,6 @@ impl CsvImportOptionsArg {
             atomic: self.atomic.unwrap_or(true),
         }
     }
-}
-
-fn first_byte(s: Option<&str>, fallback: u8) -> u8 {
-    s.and_then(|v| v.as_bytes().first().copied())
-        .unwrap_or(fallback)
 }
 
 /// One destination column of a new table to be created during import.
