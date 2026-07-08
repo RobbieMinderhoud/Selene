@@ -9,14 +9,9 @@
  * Logging failures are swallowed: diagnostics must never break the UI.
  */
 
-import { error as logError, warn as logWarn } from "@tauri-apps/plugin-log";
+import { error as logError } from "@tauri-apps/plugin-log";
 
 /** Record a sanitized error (e.g. an `IpcError.message`) to the app log. */
 export function logErr(context: string, message: string): void {
   void logError(`${context}: ${message}`).catch(() => undefined);
-}
-
-/** Record a sanitized warning to the app log. */
-export function logWarning(context: string, message: string): void {
-  void logWarn(`${context}: ${message}`).catch(() => undefined);
 }

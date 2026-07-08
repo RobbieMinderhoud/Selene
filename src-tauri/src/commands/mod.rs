@@ -39,6 +39,14 @@ use serde::Serialize;
 
 use selene_core::{CellValue, Column, ExecOutcome};
 
+/// First byte of an optional frontend string, or `fallback` when absent/empty.
+/// Turns a delimiter/quote option into the single byte the core CSV options
+/// expect. Shared by the export and import commands.
+pub(crate) fn first_byte(s: Option<&str>, fallback: u8) -> u8 {
+    s.and_then(|v| v.as_bytes().first().copied())
+        .unwrap_or(fallback)
+}
+
 /// Streaming events emitted by [`query_run`] over a `tauri::ipc::Channel`.
 ///
 /// Internally tagged with a `kind` field; every field is `camelCase` on the
