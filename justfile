@@ -21,12 +21,24 @@ dev:
 # to use a different name, edit src-tauri/tauri.dev-signed.conf.json.
 dev-signed:
     pnpm tauri build --debug --bundles app --config src-tauri/tauri.dev-signed.conf.json
+    @just sweep
     open target/debug/bundle/macos/Selene.app
+
+# Reclaim stale build artifacts (old dependency versions + other toolchains)
+# WITHOUT touching the current build, so `target/` stops growing without bound.
+# Runs automatically at the tail of every build recipe. No-op with a hint if
+# cargo-sweep isn't installed (`cargo install cargo-sweep`).
+sweep:
+    @command -v cargo-sweep >/dev/null 2>&1 \
+        && cargo sweep --installed >/dev/null && cargo sweep --time 7 >/dev/null \
+        && echo "recycled stale target/ artifacts" \
+        || echo "cargo-sweep not installed; skipping target/ recycle (cargo install cargo-sweep)"
 
 # Build the production desktop bundle.
 build:
     pnpm install
     pnpm tauri build
+    @just sweep
 
 # Build a SIGNED release .app for personal install (macOS).
 # Reuses the stable signing identity in tauri.dev-signed.conf.json (that file
@@ -40,6 +52,7 @@ build:
 build-signed:
     pnpm install
     pnpm tauri build --bundles app --config src-tauri/tauri.dev-signed.conf.json
+    @just sweep
     open target/release/bundle/macos
 
 # Build the signed release and copy it straight into /Applications.
