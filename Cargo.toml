@@ -23,6 +23,12 @@ tokio-util = { version = "0.7", features = ["compat"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 uuid = { version = "1" }
 
+[profile.dev]
+# Full DWARF debuginfo is the bulk of `target/debug` (it dwarfs the compiled
+# code). Line tables keep file:line in panics/backtraces at a fraction of the
+# size, with no hit to rebuild speed.
+debug = "line-tables-only"
+
 [profile.release]
 # Smaller, faster release binaries for a desktop app.
 codegen-units = 1
