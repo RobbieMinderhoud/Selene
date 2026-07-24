@@ -42,5 +42,6 @@ pub fn classify_for(driver: DriverId, query: &str, read_only: bool) -> GuardVerd
 // stay covered by this module's own tests).
 #[cfg(feature = "mssql")]
 pub(crate) use sql_guard::{
-    is_countable_dml_batch, is_rollback_wrapped_dml_batch, peel_leading_use,
+    is_countable_dml_batch, is_rollback_wrapped_dml_batch, is_single_dml_batch,
+    is_transaction_wrapped_dml_batch, peel_leading_use,
 };

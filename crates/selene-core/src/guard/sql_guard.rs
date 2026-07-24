@@ -110,10 +110,10 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
     // Two paths:
     // (a) Semicolon-separated: handled by is_rollback_wrapped_read_or_dml_batch.
     // (b) No semicolons (single "statement"): users often omit `;` in T-SQL.
-    //     The token-level is_rollback_wrapped_no_semi covers that case.
+    //     The token-level is_txn_wrapped_no_semi covers that case.
     if !read_only
         && (is_rollback_wrapped_read_or_dml_batch(&statements)
-            || (statements.len() == 1 && is_rollback_wrapped_no_semi(statements[0], false)))
+            || (statements.len() == 1 && is_txn_wrapped_no_semi(statements[0], false, false)))
     {
         return GuardVerdict::benign();
     }
@@ -139,7 +139,14 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
             continue;
         }
 
-        let kind = leading_kind(body);
+        // `SELECT … INTO <table>` is a write in read clothing: it creates and
+        // fills a new table. Classify it as DML so it is confirmed in writable
+        // mode and blocked in read-only mode.
+        let kind = if is_select_into(body) {
+            Kind::Dml
+        } else {
+            leading_kind(body)
+        };
 
         // Read-only mode is the strongest rule: any non-read statement is
         // blocked outright.
@@ -177,7 +184,8 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
 /// True in two cases:
 ///
 /// 1. **DML + variable-ops batch**: every statement is either a
-///    data-modification (`INSERT` / `UPDATE` / `DELETE` / `MERGE`) with **no
+///    data-modification (`INSERT` / `UPDATE` / `DELETE` / `MERGE`, or a
+///    `SELECT … INTO <table>` — a write that returns no rows) with **no
 ///    `OUTPUT` clause**, or a non-row-returning variable operation (`DECLARE` /
 ///    `SET`). At least one DML statement must be present — a variable-ops-only
 ///    batch has nothing to count.
@@ -187,18 +195,19 @@ pub fn classify(sql: &str, read_only: bool) -> GuardVerdict {
 ///    does not include them in `rows_affected()` — the array naturally contains
 ///    only the DML counts.
 ///
-/// 2. **Rollback-wrapped DML**: the batch is `BEGIN TRAN[SACTION]; <DML /
-///    variable-ops …>; ROLLBACK` (with or without semicolons). SQL Server
-///    reports the affected-row DONE token for each inner DML even though the
-///    transaction is rolled back, giving the user a safe dry-run row count.
-///    `execute()` collects those counts correctly; the inner DML must not have
-///    an `OUTPUT` clause (which would return rows that `execute()` silently
-///    discards), and must not contain `SELECT` / `WITH` for the same reason.
+/// 2. **Transaction-wrapped DML**: the batch is `BEGIN TRAN[SACTION]; <DML /
+///    variable-ops …>; ROLLBACK | COMMIT` (with or without semicolons). SQL
+///    Server reports the affected-row DONE token for each inner DML (even when
+///    the transaction is rolled back — a safe dry-run row count). `execute()`
+///    collects those counts correctly; the inner DML must not have an `OUTPUT`
+///    clause (which would return rows that `execute()` silently discards), and
+///    must not contain a bare `SELECT` / `WITH` for the same reason. The
+///    `SELECT` that feeds an `INSERT … SELECT` is fine: it returns no rows.
 ///
-/// Everything else — `SELECT` / `EXEC` / DDL / `USE` / CTEs / committed
-/// transaction wrappers / batches with SELECT — stays on the row-streaming
-/// path. Reuses the same comment/string stripping as [`classify`], so a
-/// `DELETE` or `OUTPUT` inside a string literal cannot mislead it.
+/// Everything else — `SELECT` / `EXEC` / DDL / `USE` / CTEs / batches with a
+/// bare SELECT — stays on the row-streaming path. Reuses the same
+/// comment/string stripping as [`classify`], so a `DELETE` or `OUTPUT` inside
+/// a string literal cannot mislead it.
 // Only the mssql driver routes batches through the affected-count path; in an
 // sqlx-only build the function (and the cluster below) has no non-test caller,
 // so silence dead-code there without dropping the logic or its test coverage.
@@ -215,9 +224,10 @@ pub(crate) fn is_countable_dml_batch(sql: &str) -> bool {
         return false;
     }
 
-    // Rollback-wrapped DML is countable (semicolon-separated or semicolon-free).
-    if is_rollback_wrapped_dml_only_batch(&stmts)
-        || (stmts.len() == 1 && is_rollback_wrapped_no_semi(stmts[0], true))
+    // Transaction-wrapped DML is countable (semicolon-separated or
+    // semicolon-free, closed by either ROLLBACK or COMMIT).
+    if is_txn_wrapped_dml_only_batch(&stmts, true)
+        || (stmts.len() == 1 && is_txn_wrapped_no_semi(stmts[0], true, true))
     {
         return true;
     }
@@ -238,6 +248,9 @@ pub(crate) fn is_countable_dml_batch(sql: &str) -> bool {
                 }
                 has_dml = true;
             }
+            // SELECT … INTO returns no rows (they land in the new table) and
+            // reports an affected count — countable DML in read clothing.
+            Kind::Read if is_select_into(stmt) => has_dml = true,
             Kind::Read => {
                 // Only DECLARE and SET are allowed as non-DML statements.
                 // SELECT, WITH, USE, etc. would return rows that execute() discards.
@@ -259,12 +272,26 @@ pub(crate) fn is_countable_dml_batch(sql: &str) -> bool {
 /// without semicolons).
 ///
 /// The MSSQL driver uses this — after [`is_countable_dml_batch`] has already
-/// gated the batch onto the counting path — to know it must **trim the leading
-/// and trailing zero-count entries** emitted by the `BEGIN TRAN` and `ROLLBACK`
+/// gated the batch onto the counting path — to flag the outcome as rolled back
+/// (a dry run, nothing persisted).
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
+pub(crate) fn is_rollback_wrapped_dml_batch(sql: &str) -> bool {
+    is_wrapped_dml_batch(sql, false)
+}
+
+/// Whether `sql` is a transaction-wrapped countable-DML batch closed by either
+/// `ROLLBACK` or `COMMIT`.
+///
+/// The MSSQL driver uses this to know it must **trim the leading and trailing
+/// zero-count entries** emitted by the `BEGIN TRAN` and `ROLLBACK`/`COMMIT`
 /// statements, so the UI shows only the inner DML's "<n> rows affected" set
 /// instead of two phantom 0-row sets framing the real one.
 #[cfg_attr(not(feature = "mssql"), allow(dead_code))]
-pub(crate) fn is_rollback_wrapped_dml_batch(sql: &str) -> bool {
+pub(crate) fn is_transaction_wrapped_dml_batch(sql: &str) -> bool {
+    is_wrapped_dml_batch(sql, true)
+}
+
+fn is_wrapped_dml_batch(sql: &str, allow_commit: bool) -> bool {
     let sanitized = strip_comments_and_strings(sql);
     let stmts: Vec<&str> = sanitized
         .split(';')
@@ -275,8 +302,8 @@ pub(crate) fn is_rollback_wrapped_dml_batch(sql: &str) -> bool {
     if stmts.is_empty() {
         return false;
     }
-    is_rollback_wrapped_dml_only_batch(&stmts)
-        || (stmts.len() == 1 && is_rollback_wrapped_no_semi(stmts[0], true))
+    is_txn_wrapped_dml_only_batch(&stmts, allow_commit)
+        || (stmts.len() == 1 && is_txn_wrapped_no_semi(stmts[0], true, allow_commit))
 }
 
 /// Peel one or more leading `USE <database>` statements off the front of a
@@ -476,7 +503,7 @@ fn is_commit_statement(stmt: &str) -> bool {
     first_keyword(stmt).is_some_and(|kw| kw.eq_ignore_ascii_case("COMMIT"))
 }
 
-/// Token-level check for the no-semicolon rollback-wrapped batch pattern.
+/// Token-level check for the no-semicolon transaction-wrapped batch pattern.
 ///
 /// Users often write T-SQL without semicolons between statements:
 /// ```sql
@@ -485,23 +512,31 @@ fn is_commit_statement(stmt: &str) -> bool {
 /// ROLLBACK
 /// ```
 /// The normal `;`-split in [`classify`] / [`is_countable_dml_batch`] treats
-/// this as a single statement and misses the rollback wrapper. This function
-/// re-splits the already-stripped text on whitespace and checks:
+/// this as a single statement and misses the wrapper. This function blanks out
+/// top-level `(…)` groups (subqueries, column lists — so their tokens cannot
+/// mislead the scan), re-splits the remaining text on whitespace, and checks:
 ///
 /// - First two tokens: `BEGIN TRAN[SACTION]`
-/// - Last one or two tokens: `ROLLBACK [TRAN | TRANSACTION | WORK]`
+/// - Last one or two tokens: `ROLLBACK [TRAN | TRANSACTION | WORK]`, or (when
+///   `allow_commit`) the same with `COMMIT`
 /// - Middle tokens: no DDL (`DROP`, `TRUNCATE`, `CREATE`, `ALTER`, `GRANT`,
 ///   `REVOKE`, `EXEC[UTE]`), no `COMMIT`, no `OUTPUT`.
 ///
 /// When `dml_only` is `true` (used by [`is_countable_dml_batch`]): the middle
 /// must also contain at least one explicit DML verb (`INSERT`, `UPDATE`,
-/// `DELETE`, `MERGE`) and must not contain `SELECT` or `WITH` (which would
-/// return rows that `execute()` silently discards).
+/// `DELETE`, `MERGE`) and must not contain a bare `SELECT` or `WITH` (which
+/// would return rows that `execute()` silently discards). The `SELECT` feeding
+/// an `INSERT [INTO] <table> SELECT …` is allowed — it returns no rows.
 ///
-/// When `dml_only` is `false` (used by the guard): reads are also accepted,
-/// consistent with the semicolon-based [`is_rollback_wrapped_read_or_dml_batch`].
-fn is_rollback_wrapped_no_semi(sanitized: &str, dml_only: bool) -> bool {
-    let words: Vec<&str> = sanitized.split_ascii_whitespace().collect();
+/// When `dml_only` is `false` (used by the guard, always with
+/// `allow_commit == false`): reads are also accepted, consistent with the
+/// semicolon-based [`is_rollback_wrapped_read_or_dml_batch`].
+fn is_txn_wrapped_no_semi(sanitized: &str, dml_only: bool, allow_commit: bool) -> bool {
+    // Unbalanced parens: stay conservative (not wrapped → streaming path).
+    let Some(stripped) = strip_paren_groups(sanitized) else {
+        return false;
+    };
+    let words: Vec<&str> = stripped.split_ascii_whitespace().collect();
     // Minimum: BEGIN TRAN <one middle token> ROLLBACK (4 tokens).
     if words.len() < 4 {
         return false;
@@ -516,11 +551,14 @@ fn is_rollback_wrapped_no_semi(sanitized: &str, dml_only: bool) -> bool {
         _ => return false,
     };
 
-    // --- Closer: ROLLBACK [TRAN | TRANSACTION | WORK] (1 or 2 trailing tokens) ---
+    // --- Closer: ROLLBACK|COMMIT [TRAN | TRANSACTION | WORK] (1 or 2 trailing tokens) ---
+    let is_closer = |w: &str| {
+        w.eq_ignore_ascii_case("ROLLBACK") || (allow_commit && w.eq_ignore_ascii_case("COMMIT"))
+    };
     let n = words.len();
-    let closer_start = if words[n - 1].eq_ignore_ascii_case("ROLLBACK") {
+    let closer_start = if is_closer(words[n - 1]) {
         n - 1
-    } else if n >= 3 && words[n - 2].eq_ignore_ascii_case("ROLLBACK") {
+    } else if n >= 3 && is_closer(words[n - 2]) {
         let tail = words[n - 1].to_ascii_uppercase();
         if matches!(tail.as_str(), "TRAN" | "TRANSACTION" | "WORK") {
             n - 2
@@ -539,7 +577,7 @@ fn is_rollback_wrapped_no_semi(sanitized: &str, dml_only: bool) -> bool {
     let middle = &words[opener_len..closer_start];
     let mut saw_dml = false;
 
-    for word in middle {
+    for (i, word) in middle.iter().enumerate() {
         let upper = word.to_ascii_uppercase();
         match upper.as_str() {
             "INSERT" | "UPDATE" | "DELETE" | "MERGE" => saw_dml = true,
@@ -547,10 +585,23 @@ fn is_rollback_wrapped_no_semi(sanitized: &str, dml_only: bool) -> bool {
             // the semicolon-based check.
             "DROP" | "TRUNCATE" | "CREATE" | "ALTER" | "GRANT" | "REVOKE" | "EXEC" | "EXECUTE"
             | "OUTPUT" => return false,
-            // COMMIT inside the batch means data is persisted — reject.
+            // COMMIT inside the batch (not as the closer) — reject.
             "COMMIT" => return false,
-            // SELECTs / CTEs return rows that client.execute() would discard.
-            "SELECT" | "WITH" if dml_only => return false,
+            // A SELECT is only acceptable as the source of an
+            // `INSERT [INTO] <table> SELECT …` (column lists and subqueries are
+            // already paren-stripped away, so the target directly precedes it).
+            // A bare SELECT returns rows that client.execute() would discard.
+            "SELECT" if dml_only => {
+                let owned_by_insert = (i >= 2 && middle[i - 2].eq_ignore_ascii_case("INSERT"))
+                    || (i >= 3
+                        && middle[i - 3].eq_ignore_ascii_case("INSERT")
+                        && middle[i - 2].eq_ignore_ascii_case("INTO"));
+                if !owned_by_insert {
+                    return false;
+                }
+            }
+            // CTEs return rows that client.execute() would discard.
+            "WITH" if dml_only => return false,
             _ => {}
         }
     }
@@ -563,19 +614,50 @@ fn is_rollback_wrapped_no_semi(sanitized: &str, dml_only: bool) -> bool {
     true
 }
 
-/// Whether a semicolon-separated batch is a rollback-wrapped pure-DML batch:
-/// opens with a standalone transaction opener, ends with `ROLLBACK`, and every
-/// statement in between is DML without an `OUTPUT` clause.
+/// Blank out top-level `(…)` groups — subqueries, column lists, `VALUES`
+/// tuples — from already-sanitized SQL, so word-level scans see only the
+/// batch's top-level tokens. Each group collapses to a single space (token
+/// boundaries survive). Returns `None` on unbalanced parens so callers can
+/// stay conservative.
+fn strip_paren_groups(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len());
+    let mut depth: u32 = 0;
+    for c in s.chars() {
+        match c {
+            '(' => {
+                depth += 1;
+                if depth == 1 {
+                    out.push(' ');
+                }
+            }
+            ')' => {
+                if depth == 0 {
+                    return None;
+                }
+                depth -= 1;
+            }
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    (depth == 0).then_some(out)
+}
+
+/// Whether a semicolon-separated batch is a transaction-wrapped pure-DML batch:
+/// opens with a standalone transaction opener, ends with `ROLLBACK` (or, when
+/// `allow_commit`, `COMMIT`), and every statement in between is DML without an
+/// `OUTPUT` clause.
 ///
-/// Used by [`is_countable_dml_batch`] so that a `BEGIN TRAN; UPDATE …; ROLLBACK`
-/// dry-run is routed through `execute()` and reports the affected row count.
+/// Used by [`is_countable_dml_batch`] so that a `BEGIN TRAN; UPDATE …;
+/// ROLLBACK | COMMIT` batch is routed through `execute()` and reports the
+/// affected row count.
 #[cfg_attr(not(feature = "mssql"), allow(dead_code))]
-fn is_rollback_wrapped_dml_only_batch(statements: &[&str]) -> bool {
+fn is_txn_wrapped_dml_only_batch(statements: &[&str], allow_commit: bool) -> bool {
     if statements.len() < 2 {
         return false;
     }
     let last = statements[statements.len() - 1];
-    if !is_rollback_statement(last) {
+    if !(is_rollback_statement(last) || allow_commit && is_commit_statement(last)) {
         return false;
     }
     let Some(first_inner) = peel_transaction_opener(statements[0]) else {
@@ -601,6 +683,9 @@ fn is_rollback_wrapped_dml_only_batch(statements: &[&str]) -> bool {
                 }
                 saw_dml = true;
             }
+            // SELECT … INTO writes into a new table and returns no rows —
+            // countable DML in read clothing.
+            Kind::Read if is_select_into(body) => saw_dml = true,
             Kind::Read => {
                 // DECLARE and SET are allowed: they never return result sets.
                 let kw_upper = first_keyword(body)
@@ -619,9 +704,64 @@ fn is_rollback_wrapped_dml_only_batch(statements: &[&str]) -> bool {
     saw_dml
 }
 
-/// Classify a DML statement (INSERT/UPDATE/DELETE/MERGE).
+/// Whether a (sanitized) statement is a `SELECT … INTO <table>` targeting a
+/// **permanent** table — a write in read clothing: it creates and fills a new
+/// table and returns no rows. `INTO` cannot occur inside a plain `SELECT`
+/// (subqueries can't contain it), so a leading `SELECT` plus a top-level `INTO`
+/// token is sufficient.
+///
+/// A `SELECT … INTO #tmp` (temp-table target) deliberately returns `false`: it
+/// is a session-scoped read-side scratch pattern, and routing it through the
+/// driver's `sp_executesql` counting path would drop the temp table the moment
+/// the dynamic batch ends.
+fn is_select_into(stmt: &str) -> bool {
+    if !first_keyword(stmt).is_some_and(|kw| kw.eq_ignore_ascii_case("SELECT")) {
+        return false;
+    }
+    let mut words = stmt.split_ascii_whitespace();
+    while let Some(w) = words.next() {
+        if w.eq_ignore_ascii_case("INTO") {
+            return !words
+                .next()
+                .is_some_and(|target| target.trim_start_matches('[').starts_with('#'));
+        }
+    }
+    false
+}
+
+/// Best-effort: does the batch contain exactly **one** DML statement?
+///
+/// The MSSQL driver uses this to drop the extra affected-count entries that
+/// server-side triggers / cascades emit (their count-flagged DONE tokens
+/// precede the statement's own): with a single statement, only the last count
+/// can be the statement's. Conservative — shapes it cannot count reliably
+/// (`MERGE`, whose WHEN clauses contain DML verbs; unbalanced parens) return
+/// `false`, keeping all counts.
+#[cfg_attr(not(feature = "mssql"), allow(dead_code))]
+pub(crate) fn is_single_dml_batch(sql: &str) -> bool {
+    let sanitized = strip_comments_and_strings(sql);
+    let Some(stripped) = strip_paren_groups(&sanitized) else {
+        return false;
+    };
+    if contains_keyword(&stripped, "MERGE") {
+        return false;
+    }
+    let verbs = count_keyword(&stripped, "INSERT")
+        + count_keyword(&stripped, "UPDATE")
+        + count_keyword(&stripped, "DELETE");
+    verbs == 1
+}
+
+/// Classify a DML statement (INSERT/UPDATE/DELETE/MERGE/SELECT INTO).
 fn classify_dml(stmt: &str, level: &mut GuardLevel, reasons: &mut Vec<String>) {
     let kw = first_keyword(stmt).unwrap_or_default();
+
+    // Only reached via the SELECT INTO promotion in `classify`.
+    if kw.eq_ignore_ascii_case("SELECT") {
+        bump(level, GuardLevel::Confirm);
+        push_unique(reasons, "SELECT INTO creates a new table and fills it");
+        return;
+    }
     let is_update_or_delete =
         kw.eq_ignore_ascii_case("UPDATE") || kw.eq_ignore_ascii_case("DELETE");
 
@@ -743,14 +883,21 @@ fn has_where_clause(stmt: &str) -> bool {
 /// `nowhere` or `where_id`). Boundaries are non-alphanumeric, non-underscore
 /// characters.
 fn contains_keyword(haystack: &str, keyword: &str) -> bool {
+    count_keyword(haystack, keyword) > 0
+}
+
+/// Count the word-boundary, case-insensitive occurrences of `keyword` within
+/// `haystack` (same boundary rules as [`contains_keyword`]).
+fn count_keyword(haystack: &str, keyword: &str) -> usize {
     let hay = haystack.as_bytes();
     let needle = keyword.as_bytes();
     if needle.is_empty() || hay.len() < needle.len() {
-        return false;
+        return 0;
     }
 
     let is_word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
 
+    let mut count = 0;
     let mut i = 0;
     while i + needle.len() <= hay.len() {
         let window = &hay[i..i + needle.len()];
@@ -759,12 +906,14 @@ fn contains_keyword(haystack: &str, keyword: &str) -> bool {
             let after_idx = i + needle.len();
             let after_ok = after_idx >= hay.len() || !is_word_byte(hay[after_idx]);
             if before_ok && after_ok {
-                return true;
+                count += 1;
+                i = after_idx;
+                continue;
             }
         }
         i += 1;
     }
-    false
+    count
 }
 
 /// Remove SQL comments and string-literal *contents* so keyword detection and
@@ -1357,10 +1506,15 @@ mod tests {
             "BEGIN TRAN\nDELETE FROM t WHERE id = 1\nROLLBACK TRAN"
         ));
 
-        // Committed wrappers and non-DML inner content must remain non-countable.
-        assert!(!is_countable_dml_batch(
+        // Committed wrappers are countable too (the counts are identical; only
+        // the rolled_back flag differs).
+        assert!(is_countable_dml_batch(
             "BEGIN TRAN;\nUPDATE t SET x = 1;\nCOMMIT;"
         ));
+        assert!(is_countable_dml_batch(
+            "BEGIN TRANSACTION\nINSERT INTO t (a) VALUES (1)\nCOMMIT"
+        ));
+        // Bare SELECTs return rows execute() would discard — non-countable.
         assert!(!is_countable_dml_batch(
             "BEGIN TRAN;\nSELECT * FROM t;\nROLLBACK;"
         ));
@@ -1389,9 +1543,6 @@ mod tests {
         assert!(!is_countable_dml_batch("EXEC some_proc"));
         assert!(!is_countable_dml_batch("CREATE TABLE t (id INT)"));
         assert!(!is_countable_dml_batch("SELECT 1; UPDATE t SET x = 1"));
-        assert!(!is_countable_dml_batch(
-            "BEGIN TRAN; UPDATE t SET x = 1; COMMIT"
-        ));
         assert!(!is_countable_dml_batch(""));
         assert!(!is_countable_dml_batch("-- just a comment"));
         // A column literally named with an "output" substring must not trip the
@@ -1432,6 +1583,107 @@ mod tests {
         // Empty / comment-only.
         assert!(!is_rollback_wrapped_dml_batch(""));
         assert!(!is_rollback_wrapped_dml_batch("-- nothing here"));
+    }
+
+    #[test]
+    fn select_into_is_countable_and_classified_as_write() {
+        // Plain SELECT … INTO: countable (returns no rows, reports a count).
+        assert!(is_countable_dml_batch(
+            "SELECT a, b INTO backup_t FROM t WHERE x = 1"
+        ));
+        // The reported shape: cross-database target + IN (subquery).
+        assert!(is_countable_dml_batch(
+            "SELECT o.id, o.dossier_id\nINTO otherdb.dbo.Backup_offer\nFROM offer o\nWHERE o.deleted IS NULL\nAND o.dossier_id IN (\n    SELECT d.id FROM dossier d WHERE d.deleted IS NULL AND d.org_id = 1\n)"
+        ));
+        // Inside a transaction wrapper (either closer) it stays countable.
+        assert!(is_countable_dml_batch(
+            "BEGIN TRAN;\nSELECT a INTO backup_t FROM t;\nROLLBACK;"
+        ));
+
+        // A temp-table target must stay on the streaming path: routed through
+        // sp_executesql the temp table would vanish with the dynamic batch.
+        assert!(!is_countable_dml_batch("SELECT a INTO #tmp FROM t"));
+        assert!(!is_countable_dml_batch("SELECT a INTO [#tmp] FROM t"));
+        // 'INTO' inside a string literal is not a SELECT INTO.
+        assert!(!is_countable_dml_batch("SELECT 'INTO x' FROM t"));
+
+        // classify: a write — confirm in writable mode, block in read-only.
+        let v = classify_rw("SELECT a INTO backup_t FROM t");
+        assert_eq!(v.level, GuardLevel::Confirm);
+        assert!(v.reasons.iter().any(|r| r.contains("SELECT INTO")));
+        let v = classify("SELECT a INTO backup_t FROM t", true);
+        assert_eq!(v.level, GuardLevel::Block);
+        // A temp-table SELECT INTO stays a plain read.
+        assert_eq!(
+            classify_rw("SELECT a INTO #tmp FROM t").level,
+            GuardLevel::Info
+        );
+        assert_eq!(
+            classify("SELECT a INTO #tmp FROM t", true).level,
+            GuardLevel::Info
+        );
+    }
+
+    #[test]
+    fn insert_select_in_no_semi_wrapper_is_countable() {
+        // The reported shape: INSERT … SELECT inside a semicolon-free
+        // transaction, with a string literal and no subquery parens issue.
+        let sql = "BEGIN TRANSACTION\nINSERT INTO dossier_action (dossier_id, action_id, description)\nSELECT d.id, 47, 'converted in Q2'\nFROM dossier d\nWHERE d.deleted IS NULL AND d.org_id = 1\nROLLBACK";
+        assert!(is_countable_dml_batch(sql));
+        assert!(is_rollback_wrapped_dml_batch(sql));
+
+        // Same batch committed: countable, but not a rollback dry-run.
+        let committed = sql.replace("ROLLBACK", "COMMIT");
+        assert!(is_countable_dml_batch(&committed));
+        assert!(!is_rollback_wrapped_dml_batch(&committed));
+        assert!(is_transaction_wrapped_dml_batch(&committed));
+
+        // INSERT without the optional INTO keyword.
+        assert!(is_countable_dml_batch(
+            "BEGIN TRAN\nINSERT t SELECT a FROM s\nROLLBACK"
+        ));
+
+        // A *bare* SELECT in the wrapper still streams (rows would be lost).
+        assert!(!is_countable_dml_batch(
+            "BEGIN TRAN\nUPDATE t SET x = 1\nSELECT * FROM t\nROLLBACK"
+        ));
+        assert!(!is_countable_dml_batch(
+            "BEGIN TRAN\nINSERT INTO t VALUES (1)\nSELECT * FROM t\nROLLBACK"
+        ));
+    }
+
+    #[test]
+    fn no_semi_wrapper_ignores_subquery_parens() {
+        // Subquery tokens (incl. `( SELECT` with a space) must not reject the
+        // wrapper — they are paren-stripped before the token scan.
+        assert!(is_countable_dml_batch(
+            "BEGIN TRANSACTION\nUPDATE t SET x = 1\nWHERE id IN ( SELECT id FROM u WHERE y = 2 )\nROLLBACK"
+        ));
+        // Unbalanced parens: conservative, stays on the streaming path.
+        assert!(!is_countable_dml_batch(
+            "BEGIN TRAN\nUPDATE t SET x = 1 WHERE id IN (SELECT id FROM u\nROLLBACK"
+        ));
+    }
+
+    #[test]
+    fn single_dml_batch_detection() {
+        assert!(is_single_dml_batch("UPDATE t SET x = 1 WHERE id = 1"));
+        // Subquery contents are ignored.
+        assert!(is_single_dml_batch(
+            "UPDATE t SET x = 1 WHERE id IN (SELECT id FROM u)"
+        ));
+        assert!(is_single_dml_batch("INSERT INTO t (a) SELECT a FROM s"));
+        // Wrapper statements add no DML verbs.
+        assert!(is_single_dml_batch(
+            "BEGIN TRAN;\nDELETE FROM t WHERE id = 1;\nROLLBACK;"
+        ));
+        // Multiple statements / unknown shapes keep all counts.
+        assert!(!is_single_dml_batch("UPDATE a SET x = 1; DELETE FROM b"));
+        assert!(!is_single_dml_batch(
+            "MERGE t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET x = 1;"
+        ));
+        assert!(!is_single_dml_batch("SELECT a INTO backup_t FROM t"));
+        assert!(!is_single_dml_batch(""));
     }
 
     #[test]

@@ -246,11 +246,12 @@ impl Connection for MssqlConnection {
             }
         }
 
-        // A pure data-modification batch (no rows to return) goes through
+        // A pure data-modification batch (no rows to return — incl. SELECT
+        // INTO, INSERT … SELECT, and ROLLBACK/COMMIT-wrapped DML) goes through
         // tiberius' `execute()` so we can report affected-row counts — the
         // streaming `simple_query` path cannot (tiberius drops the DONE count).
-        // Everything else (SELECT, EXEC, DDL, USE, transactions, OUTPUT-DML,
-        // mixed batches) streams rows as before. See `run_exec_counting`.
+        // Everything else (SELECT, EXEC, DDL, USE, OUTPUT-DML, mixed batches)
+        // streams rows as before. See `run_exec_counting`.
         if crate::guard::is_countable_dml_batch(sql) {
             run_exec_counting(&mut self.client, sql, sink, cancel).await
         } else {

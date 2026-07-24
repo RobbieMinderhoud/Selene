@@ -96,6 +96,7 @@ pub(crate) async fn run_exec_counting(
     let result = client.execute(sql, &[]).await.map_err(map_tiberius_err)?;
     let rolled_back = crate::guard::is_rollback_wrapped_dml_batch(sql);
     let counts = trim_wrapper_counts(sql, result.rows_affected());
+    let counts = collapse_trigger_counts(sql, counts);
 
     // One column-less set per statement, carrying its affected count. If the
     // server reported none (e.g. the batch contains `SET NOCOUNT ON`), still
@@ -264,16 +265,17 @@ fn convert_row(row: tiberius::Row) -> Vec<CellValue> {
     row.into_iter().map(|cd| cell_to_value(&cd)).collect()
 }
 
-/// For a rollback-wrapped dry-run batch (`BEGIN TRAN; <DML …>; ROLLBACK`),
-/// strip the leading/trailing zero-count entries that `BEGIN TRAN` and
-/// `ROLLBACK` themselves contribute, so the UI shows only the inner DML's
-/// "<n> rows affected" set(s) instead of two phantom 0-row sets framing them.
+/// For a transaction-wrapped DML batch (`BEGIN TRAN; <DML …>; ROLLBACK |
+/// COMMIT`), strip the leading/trailing zero-count entries that `BEGIN TRAN`
+/// and `ROLLBACK`/`COMMIT` themselves contribute, so the UI shows only the
+/// inner DML's "<n> rows affected" set(s) instead of two phantom 0-row sets
+/// framing them.
 ///
 /// Only the first and last entries are candidates, and only when they are `0`
 /// — a genuine inner DML that affected 0 rows (which can also sit in the
 /// middle) is always preserved. For non-wrapped batches this is a no-op.
 fn trim_wrapper_counts<'a>(sql: &str, counts: &'a [u64]) -> &'a [u64] {
-    if !crate::guard::is_rollback_wrapped_dml_batch(sql) {
+    if !crate::guard::is_transaction_wrapped_dml_batch(sql) {
         return counts;
     }
     let mut start = 0;
@@ -285,6 +287,22 @@ fn trim_wrapper_counts<'a>(sql: &str, counts: &'a [u64]) -> &'a [u64] {
         end -= 1;
     }
     &counts[start..end]
+}
+
+/// A single DML statement produces exactly one affected count of its own; any
+/// extra count-flagged DONE tokens come from server-side triggers or cascades,
+/// whose counts arrive *before* the statement's own final count. For a batch
+/// with exactly one DML statement, keep only that last count so the UI shows
+/// one "<n> rows affected" set for the statement the user ran.
+///
+// ponytail: multi-statement batches keep all counts — without a SQL parser the
+// extras cannot be attributed to a statement; upgrade if that ever matters.
+fn collapse_trigger_counts<'a>(sql: &str, counts: &'a [u64]) -> &'a [u64] {
+    if counts.len() > 1 && crate::guard::is_single_dml_batch(sql) {
+        &counts[counts.len() - 1..]
+    } else {
+        counts
+    }
 }
 
 /// Flush the buffered batch (if any) to the sink, clearing it. Returns the
@@ -473,5 +491,44 @@ mod tests {
             &counts,
         );
         assert_eq!(trimmed, &[3, 0, 7]);
+    }
+
+    #[test]
+    fn trim_wrapper_counts_strips_commit_wrapper_zeros() {
+        // Committed wrapper: [BEGIN=0, INSERT=42, COMMIT=0] -> [42].
+        let counts = [0u64, 42, 0];
+        let trimmed = trim_wrapper_counts(
+            "BEGIN TRAN;\nINSERT INTO t (a) SELECT a FROM s;\nCOMMIT;",
+            &counts,
+        );
+        assert_eq!(trimmed, &[42]);
+    }
+
+    // --- collapse_trigger_counts ---------------------------------------------
+
+    #[test]
+    fn collapse_trigger_counts_keeps_only_the_statements_own_count() {
+        // Trigger/cascade counts precede the statement's own: [0, 0, 273].
+        let counts = [0u64, 0, 273];
+        let collapsed = collapse_trigger_counts(
+            "UPDATE t SET x = 1 WHERE id IN (SELECT id FROM u WHERE y = 2)",
+            &counts,
+        );
+        assert_eq!(collapsed, &[273]);
+    }
+
+    #[test]
+    fn collapse_trigger_counts_is_noop_for_multi_statement_batches() {
+        // Two statements → two counts; nothing can be attributed, keep all.
+        let counts = [5u64, 2];
+        let collapsed = collapse_trigger_counts("UPDATE a SET x = 1; DELETE FROM b", &counts);
+        assert_eq!(collapsed, &[5, 2]);
+    }
+
+    #[test]
+    fn collapse_trigger_counts_is_noop_for_single_count() {
+        let counts = [7u64];
+        let collapsed = collapse_trigger_counts("UPDATE t SET x = 1 WHERE id = 1", &counts);
+        assert_eq!(collapsed, &[7]);
     }
 }
